@@ -15,8 +15,21 @@ Self-hosted server and web UI that joins GitHub Actions webhook timings with [ga
 - Stores `workflow_run` and `workflow_job` webhooks after checking `X-Hub-Signature-256`, and ignores a repeated `X-GitHub-Delivery`. Older events never move a run or job back to an earlier status.
 - Repairs missed deliveries from the REST API. Every run gets a check 10 minutes after its last unfinished event and a minute after it completes. The check stores the run attempt and all its jobs. This work lives in Postgres, so it survives a restart.
 - Spends at most 5,000 REST requests an hour per installation, and waits out `x-ratelimit-reset` and `retry-after`.
-- Joins both sources on `run_id`, `run_attempt` and `check_run_id`, and stores them in Postgres.
+- Accepts runner data on `:4318` only when `WhoIs` says the peer is `tag:gauger-ci` and the bearer token is a GitHub Actions OIDC token with `aud` `gauger-server`, an unexpired `exp` and the configured `repository_owner_id`. Each request is checked on its own, so gauger can switch tokens mid-job.
+- Stores a job as `pending` on `start` or its first batch, then polls `GET /actions/jobs/{id}` with backoff until it completes and records the step timings. If the job completes without `done`, it looks for the `gauger-<check_run_id>` artifact until it appears or 7 days pass.
+- Joins both sources on `run_id`, `run_attempt` and `check_run_id`. Without `check_run_id`, it matches `runner.name` to the job that runner was running.
 - Keeps samples in daily partitions and drops a whole partition once it falls outside the retention window.
+
+## Contract with gauger
+
+This contract is shared with [gauger](https://github.com/mach4-braai/gauger). Change it in both repos together.
+
+- Every request carries `Authorization: Bearer <GitHub OIDC JWT>` with audience `gauger-server`.
+- `POST /v1/jobs/start` and `POST /v1/jobs/done` take a JSON object whose keys are the identity attributes below. Values may be strings or numbers. An optional `time` (RFC 3339) says when the event happened; it defaults to when the request arrives. The reply is `{"job_id": <id>}`.
+- `POST /v1/metrics` takes OTLP/HTTP metrics as protobuf or JSON, optionally gzip-compressed. Gauge and sum points are stored. Repeated points (same job, metric, attributes and time) are ignored, so replaying a buffer is safe.
+- Identity attributes go on the resource or on each data point: `github.run_id`, `github.run_attempt`, `github.check_run_id`, `github.repository`, `github.workflow`, `github.job` and `runner.name`. `github.check_run_id` may be empty when `runner.name` is set.
+- A `503` with `Retry-After` means the server does not know the job yet or GitHub is rate limiting it. Keep the data buffered and retry.
+- The fallback artifact `gauger-<check_run_id>` holds one file per unsent batch, each an `ExportMetricsServiceRequest` in protobuf.
 
 ## Self-hosting
 
@@ -46,6 +59,9 @@ To bring your own App instead, set all three `GAUGER_GITHUB_*` App variables bel
 | `GAUGER_GITHUB_WEBHOOK_SECRET` | | The App's webhook secret. |
 | `GAUGER_GITHUB_API_URL` | `https://api.github.com` | REST API base. |
 | `GAUGER_GITHUB_URL` | `https://github.com` | Web base for the manifest flow. |
+| `GAUGER_RUNNER_TAG` | `tag:gauger-ci` | Tailscale tag runners must carry. |
+| `GAUGER_OIDC_AUDIENCE` | `gauger-server` | Required `aud` on runner tokens. |
+| `GAUGER_OIDC_REPOSITORY_OWNER_ID` | `287937105` | Required `repository_owner_id`. Set it to your org's ID. |
 
 ## Development
 

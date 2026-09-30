@@ -112,7 +112,7 @@ func (h *Handler) workflowRun(ctx context.Context, tx pgx.Tx, body []byte) error
 	if status == "completed" {
 		next = now.Add(time.Minute)
 	}
-	return store.EnqueueTask(ctx, tx, reconcile.KindRun, store.RunKey(ev.WorkflowRun.ID, ev.WorkflowRun.RunAttempt),
+	return store.EnqueueTask(ctx, tx, store.KindRun, store.RunKey(ev.WorkflowRun.ID, ev.WorkflowRun.RunAttempt),
 		repo, next, now.Add(reconcile.TaskLifetime))
 }
 
@@ -138,6 +138,6 @@ func (h *Handler) workflowJob(ctx context.Context, tx pgx.Tx, body []byte) error
 		return nil
 	}
 	now := time.Now()
-	return store.EnqueueTask(ctx, tx, reconcile.KindRun, store.RunKey(ev.WorkflowJob.RunID, ev.WorkflowJob.RunAttempt),
+	return store.EnqueueTask(ctx, tx, store.KindRun, store.RunKey(ev.WorkflowJob.RunID, ev.WorkflowJob.RunAttempt),
 		repo, now.Add(reconcile.RunCheckDelay), now.Add(reconcile.TaskLifetime))
 }

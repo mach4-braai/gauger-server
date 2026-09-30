@@ -32,11 +32,11 @@ func TestRunTaskRepairsMissedJobDeliveries(t *testing.T) {
 			StartedAt: ts("2026-09-30T10:00:00Z"), CompletedAt: ts("2026-09-30T10:03:00Z"),
 			Steps: []github.Step{{Number: 1, Name: "Run", Status: "completed", Conclusion: "success", StartedAt: ts("2026-09-30T10:00:00Z"), CompletedAt: ts("2026-09-30T10:03:00Z")}}}
 	}
-	if err := store.EnqueueTask(ctx, st.Pool, KindRun, "100:2", "acme/app", time.Now().Add(-time.Second), time.Now().Add(time.Hour)); err != nil {
+	if err := store.EnqueueTask(ctx, st.Pool, store.KindRun, "100:2", "acme/app", time.Now().Add(-time.Second), time.Now().Add(time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 
-	r.processDue(ctx)
+	r.ProcessDue(ctx)
 
 	var jobs, steps, tasks int
 	st.Pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE run_id = 100 AND status = 'completed'`).Scan(&jobs)
@@ -58,9 +58,9 @@ func TestUnfinishedRunIsPolledAgainWithBackoff(t *testing.T) {
 	r, gh, st := setup(t)
 	ctx := context.Background()
 	gh.Runs["100:1"] = &github.Run{ID: 100, RunAttempt: 1, Status: "in_progress"}
-	store.EnqueueTask(ctx, st.Pool, KindRun, "100:1", "acme/app", time.Now().Add(-time.Second), time.Now().Add(time.Hour))
+	store.EnqueueTask(ctx, st.Pool, store.KindRun, "100:1", "acme/app", time.Now().Add(-time.Second), time.Now().Add(time.Hour))
 
-	r.processDue(ctx)
+	r.ProcessDue(ctx)
 
 	var attempts int
 	var next time.Time
@@ -76,9 +76,9 @@ func TestRateLimitedTaskWaitsForReset(t *testing.T) {
 	r, gh, st := setup(t)
 	ctx := context.Background()
 	gh.Limited = true
-	store.EnqueueTask(ctx, st.Pool, KindRun, "100:1", "acme/app", time.Now().Add(-time.Second), time.Now().Add(24*time.Hour))
+	store.EnqueueTask(ctx, st.Pool, store.KindRun, "100:1", "acme/app", time.Now().Add(-time.Second), time.Now().Add(24*time.Hour))
 
-	r.processDue(ctx)
+	r.ProcessDue(ctx)
 
 	var attempts int
 	var next time.Time

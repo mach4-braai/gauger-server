@@ -375,3 +375,36 @@ func (c *Client) ListRunAttemptJobs(ctx context.Context, inst int64, repo string
 		}
 	}
 }
+
+// ListRunArtifacts returns the run's artifacts called name.
+func (c *Client) ListRunArtifacts(ctx context.Context, inst int64, repo string, runID int64, name string) ([]Artifact, error) {
+	owner, repoName, err := splitRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	var out struct {
+		Artifacts []Artifact `json:"artifacts"`
+	}
+	path := fmt.Sprintf("/repos/%s/%s/actions/runs/%d/artifacts?name=%s", owner, repoName, runID, url.QueryEscape(name))
+	if err := c.do(ctx, inst, http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Artifacts, nil
+}
+
+// DownloadArtifact returns the artifact's zip. GitHub redirects to blob
+// storage; net/http drops the Authorization header on that redirect.
+func (c *Client) DownloadArtifact(ctx context.Context, inst int64, repo string, id int64) ([]byte, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	resp, data, err := c.send(ctx, inst, http.MethodGet, fmt.Sprintf("%s/repos/%s/%s/actions/artifacts/%d/zip", c.APIURL, owner, name, id), nil)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, &StatusError{Code: resp.StatusCode, Body: truncate(data)}
+	}
+	return data, nil
+}
