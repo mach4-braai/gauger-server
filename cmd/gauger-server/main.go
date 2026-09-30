@@ -9,6 +9,7 @@ import (
 
 	"github.com/mach4-braai/gauger-server/internal/config"
 	"github.com/mach4-braai/gauger-server/internal/github"
+	"github.com/mach4-braai/gauger-server/internal/ingest"
 	"github.com/mach4-braai/gauger-server/internal/reconcile"
 	"github.com/mach4-braai/gauger-server/internal/server"
 	"github.com/mach4-braai/gauger-server/internal/store"
@@ -55,7 +56,14 @@ func run() error {
 	defer node.Close()
 	slog.Info("joined tailnet", "dns_name", node.DNSName)
 
+	auth := &ingest.Auth{
+		Tags:     node,
+		Tag:      cfg.RunnerTag,
+		Verifier: ingest.NewVerifier(ctx, cfg.OIDCAudience),
+		OwnerID:  cfg.OIDCOwnerID,
+	}
 	srv := &server.Server{
+		Runner:   auth.Wrap((&ingest.Handler{Store: st, Reconciler: rec}).Routes()),
 		Webhooks: &webhook.Handler{Store: st, Creds: creds, Wake: rec.Wake},
 		UI:       (&ui.UI{Store: st, GitHub: gh, Creds: creds, DNSName: node.DNSName, GitHubURL: cfg.GitHubURL}).Handler(),
 	}

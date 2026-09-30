@@ -32,6 +32,9 @@ type Server struct {
 	Mu   sync.Mutex
 	Runs map[string]*github.Run // key: runID:attempt
 	Jobs map[int64]*github.Job  // key: job ID
+	// Artifacts are listed for every run, by name; Zips holds their content.
+	Artifacts map[string]github.Artifact
+	Zips      map[int64][]byte
 	// Limited makes every API call answer 403 with a rate-limit reset.
 	Limited bool
 	Calls   []string
@@ -44,9 +47,11 @@ func New(t testing.TB) *Server {
 		t.Fatal(err)
 	}
 	s := &Server{
-		Key:  key,
-		Runs: map[string]*github.Run{},
-		Jobs: map[int64]*github.Job{},
+		Key:       key,
+		Runs:      map[string]*github.Run{},
+		Jobs:      map[int64]*github.Job{},
+		Artifacts: map[string]github.Artifact{},
+		Zips:      map[int64][]byte{},
 	}
 	s.Server = httptest.NewServer(http.HandlerFunc(s.serve))
 	t.Cleanup(s.Close)
@@ -140,6 +145,21 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"total_count": len(jobs), "jobs": jobs})
 		return
+	case len(rest) == 3 && rest[0] == "runs" && rest[2] == "artifacts":
+		var arts []github.Artifact
+		if a, ok := s.Artifacts[r.URL.Query().Get("name")]; ok {
+			arts = append(arts, a)
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"total_count": len(arts), "artifacts": arts})
+		return
+	case len(rest) == 3 && rest[0] == "artifacts" && rest[2] == "zip":
+		for id, z := range s.Zips {
+			if fmt.Sprint(id) == rest[1] {
+				w.Header().Set("Content-Type", "application/zip")
+				w.Write(z)
+				return
+			}
+		}
 	}
 	writeJSON(w, http.StatusNotFound, map[string]string{"message": "Not Found"})
 }

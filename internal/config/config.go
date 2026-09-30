@@ -27,6 +27,10 @@ type Config struct {
 	// GitHubApp is set when the App comes from environment variables
 	// instead of the manifest flow.
 	GitHubApp *github.Credentials
+
+	RunnerTag    string
+	OIDCAudience string
+	OIDCOwnerID  string
 }
 
 func Load() (Config, error) {
@@ -41,6 +45,9 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (Co
 		TSAuthKey:    getenv("GAUGER_TS_AUTHKEY"),
 		GitHubAPIURL: strings.TrimSuffix(orDefault(getenv("GAUGER_GITHUB_API_URL"), "https://api.github.com"), "/"),
 		GitHubURL:    strings.TrimSuffix(orDefault(getenv("GAUGER_GITHUB_URL"), "https://github.com"), "/"),
+		RunnerTag:    orDefault(getenv("GAUGER_RUNNER_TAG"), "tag:gauger-ci"),
+		OIDCAudience: orDefault(getenv("GAUGER_OIDC_AUDIENCE"), "gauger-server"),
+		OIDCOwnerID:  orDefault(getenv("GAUGER_OIDC_REPOSITORY_OWNER_ID"), "287937105"),
 	}
 	if c.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("GAUGER_DATABASE_URL is required")

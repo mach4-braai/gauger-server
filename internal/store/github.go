@@ -212,6 +212,9 @@ func UpsertJob(ctx context.Context, tx pgx.Tx, repo string, j *github.Job) error
 	if err != nil {
 		return fmt.Errorf("upsert job %d: %w", j.ID, err)
 	}
+	if err := scheduleFollowups(ctx, tx, j.ID); err != nil {
+		return err
+	}
 	if !wins || len(j.Steps) == 0 {
 		return nil
 	}

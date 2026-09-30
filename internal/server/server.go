@@ -13,6 +13,9 @@ import (
 )
 
 type Server struct {
+	// Runner handles gauger's lifecycle and OTLP routes, already wrapped in
+	// runner authentication.
+	Runner http.Handler
 	// Webhooks handles POST /webhooks/github.
 	Webhooks http.Handler
 	// UI handles every other path on the UI listener.
@@ -27,6 +30,7 @@ func healthz(w http.ResponseWriter, _ *http.Request) {
 func (s *Server) RunnerHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
+	mux.Handle("/v1/", s.Runner)
 	return mux
 }
 

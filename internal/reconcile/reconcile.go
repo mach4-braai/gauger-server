@@ -18,8 +18,6 @@ import (
 )
 
 const (
-	KindRun = "run"
-
 	// RunCheckDelay is how long after an unfinished run event the first REST
 	// check happens. Webhooks normally make that check a no-op.
 	RunCheckDelay = 10 * time.Minute
@@ -41,13 +39,14 @@ type Reconciler struct {
 }
 
 func New(st *store.Store, gh *github.Client) *Reconciler {
-	r := &Reconciler{Store: st, GitHub: gh, handlers: map[string]Handler{}, wake: make(chan struct{}, 1)}
-	r.Handle(KindRun, r.runTask)
+	r := &Reconciler{Store: st, GitHub: gh, wake: make(chan struct{}, 1)}
+	r.handlers = map[string]Handler{
+		store.KindRun:      r.runTask,
+		store.KindJob:      r.jobTask,
+		store.KindArtifact: r.artifactTask,
+	}
 	return r
 }
-
-// Handle registers the handler for a task kind.
-func (r *Reconciler) Handle(kind string, h Handler) { r.handlers[kind] = h }
 
 // Wake makes the worker look for due tasks now.
 func (r *Reconciler) Wake() {
@@ -138,7 +137,7 @@ func (r *Reconciler) Run(ctx context.Context) {
 	tick := time.NewTicker(5 * time.Second)
 	defer tick.Stop()
 	for {
-		r.processDue(ctx)
+		r.ProcessDue(ctx)
 		select {
 		case <-ctx.Done():
 			return
@@ -148,7 +147,8 @@ func (r *Reconciler) Run(ctx context.Context) {
 	}
 }
 
-func (r *Reconciler) processDue(ctx context.Context) {
+// ProcessDue runs every task that is due now, one attempt each.
+func (r *Reconciler) ProcessDue(ctx context.Context) {
 	now := time.Now()
 	tasks, err := r.Store.DueTasks(ctx, now, 32)
 	if err != nil {
