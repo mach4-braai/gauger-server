@@ -1,0 +1,14 @@
+{{define "title"}}Slow steps · gauger{{end}}
+{{define "content"}}
+<h1>Slow steps</h1>
+<form class="filters">{{template "filters" .Filter}} <button>Apply</button></form>
+<p class="muted">Duration of successful steps per step name, slowest p95 first.</p>
+<table>
+<tr><th>Step</th><th class="num">Runs</th><th class="num">p50</th><th class="num">p95</th></tr>
+{{range .Rows}}
+<tr><td>{{.Name}}</td><td class="num">{{.Runs}}</td><td class="num">{{secs .P50}}</td><td class="num">{{secs .P95}}</td></tr>
+{{else}}
+<tr><td colspan="4" class="muted">No completed steps in this window.</td></tr>
+{{end}}
+</table>
+{{end}}

@@ -1,0 +1,19 @@
+{{define "content"}}
+<h1>Recent jobs</h1>
+<table>
+<tr><th>Repository</th><th>Workflow</th><th>Job</th><th>Branch</th><th>Status</th><th>Started (UTC)</th><th class="num">Duration</th><th class="num">Samples</th></tr>
+{{range .}}
+<tr>
+<td>{{.Repository}}</td><td>{{.Workflow}}</td>
+<td><a href="/jobs/{{.ID}}">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</a></td>
+<td>{{.Branch}}</td>
+<td>{{.Status}}{{with .Conclusion}} · {{.}}{{end}}</td>
+<td>{{when .StartedAt}}</td>
+<td class="num">{{span .StartedAt .CompletedAt}}</td>
+<td class="num">{{.Samples}}{{if .FromArtifact}} <span class="muted">(artifact)</span>{{end}}</td>
+</tr>
+{{else}}
+<tr><td colspan="8" class="muted">No jobs yet. Install the GitHub App from <a href="/setup">Setup</a> and run a workflow.</td></tr>
+{{end}}
+</table>
+{{end}}

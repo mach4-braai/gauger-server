@@ -11,6 +11,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/mach4-braai/gauger-server/internal/github"
+	"github.com/mach4-braai/gauger-server/internal/spend"
 )
 
 type Config struct {
@@ -31,6 +32,8 @@ type Config struct {
 	RunnerTag    string
 	OIDCAudience string
 	OIDCOwnerID  string
+
+	RunnerRates spend.Rates
 }
 
 func Load() (Config, error) {
@@ -57,6 +60,10 @@ func load(getenv func(string) string, readFile func(string) ([]byte, error)) (Co
 		return Config{}, err
 	}
 	c.Retention = time.Duration(days) * 24 * time.Hour
+
+	if c.RunnerRates, err = spend.ParseRates(getenv("GAUGER_RUNNER_RATES")); err != nil {
+		return Config{}, fmt.Errorf("GAUGER_RUNNER_RATES: %w", err)
+	}
 
 	app, err := loadApp(getenv, readFile)
 	if err != nil {

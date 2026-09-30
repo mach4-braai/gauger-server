@@ -65,7 +65,10 @@ func run() error {
 	srv := &server.Server{
 		Runner:   auth.Wrap((&ingest.Handler{Store: st, Reconciler: rec}).Routes()),
 		Webhooks: &webhook.Handler{Store: st, Creds: creds, Wake: rec.Wake},
-		UI:       (&ui.UI{Store: st, GitHub: gh, Creds: creds, DNSName: node.DNSName, GitHubURL: cfg.GitHubURL}).Handler(),
+		UI: (&ui.UI{
+			Store: st, GitHub: gh, Creds: creds, Rates: cfg.RunnerRates,
+			DNSName: node.DNSName, GitHubURL: cfg.GitHubURL,
+		}).Handler(),
 	}
 	return srv.Serve(ctx, server.Listeners{Runner: node.Runner, UI: node.UI, Webhook: node.Webhook})
 }

@@ -20,6 +20,14 @@ Self-hosted server and web UI that joins GitHub Actions webhook timings with [ga
 - Joins both sources on `run_id`, `run_attempt` and `check_run_id`. Without `check_run_id`, it matches `runner.name` to the job that runner was running.
 - Keeps samples in daily partitions and drops a whole partition once it falls outside the retention window.
 
+## Web UI
+
+- **Recent jobs** link to a job view with run, job and step timings from GitHub, a CPU and memory chart from gauger, and runner usage per step.
+- **Slow steps.** p50 and p95 duration per step name.
+- **Regressions.** Each day's median step duration per branch against the median of the 14 days before it.
+- **Right-sizing.** Peak memory against `MemTotal` and CPU against `nproc` per step. These are runner-level values during the step's time window, not the step's own usage.
+- **Spend.** Job minutes, rounded up per job, times the rate for the runner label. Standard runners in public repositories and self-hosted runners are free. Rates default to GitHub's published prices; add larger runners with `GAUGER_RUNNER_RATES`.
+
 ## Contract with gauger
 
 This contract is shared with [gauger](https://github.com/mach4-braai/gauger). Change it in both repos together.
@@ -30,6 +38,7 @@ This contract is shared with [gauger](https://github.com/mach4-braai/gauger). Ch
 - Identity attributes go on the resource or on each data point: `github.run_id`, `github.run_attempt`, `github.check_run_id`, `github.repository`, `github.workflow`, `github.job` and `runner.name`. `github.check_run_id` may be empty when `runner.name` is set.
 - A `503` with `Retry-After` means the server does not know the job yet or GitHub is rate limiting it. Keep the data buffered and retry.
 - The fallback artifact `gauger-<check_run_id>` holds one file per unsent batch, each an `ExportMetricsServiceRequest` in protobuf.
+- The UI reads these metrics: `system.cpu.utilization` (0 to 1, whole runner), `system.cpu.logical.count` (`nproc`), `system.memory.usage` with `system.memory.state=used` (bytes), and `system.memory.limit` (`MemTotal` in bytes). Other metrics are stored as sent.
 
 ## Self-hosting
 
@@ -62,6 +71,7 @@ To bring your own App instead, set all three `GAUGER_GITHUB_*` App variables bel
 | `GAUGER_RUNNER_TAG` | `tag:gauger-ci` | Tailscale tag runners must carry. |
 | `GAUGER_OIDC_AUDIENCE` | `gauger-server` | Required `aud` on runner tokens. |
 | `GAUGER_OIDC_REPOSITORY_OWNER_ID` | `287937105` | Required `repository_owner_id`. Set it to your org's ID. |
+| `GAUGER_RUNNER_RATES` | | Extra runner labels and USD per minute, such as `linux-8-core=0.022,gpu=0.052`. |
 
 ## Development
 

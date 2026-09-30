@@ -1,0 +1,18 @@
+{{define "title"}}Right-sizing · gauger{{end}}
+{{define "content"}}
+<h1>Right-sizing</h1>
+<form class="filters">{{template "filters" .Filter}} <button>Apply</button></form>
+<p class="note">These are runner-level values during each step's time window, not the step's own usage. Anything else running on the runner at the same time counts too.</p>
+<table>
+<tr><th>Repository</th><th>Workflow</th><th>Job</th><th>Step</th><th class="num">Runs</th><th class="num">Peak memory</th><th class="num">of MemTotal</th><th class="num">Peak CPU (cores)</th><th class="num">Time ≥90% CPU</th></tr>
+{{range .Rows}}
+<tr>
+<td>{{.Repository}}</td><td>{{.Workflow}}</td><td>{{.Job}}</td><td>{{.Step}}</td><td class="num">{{.Runs}}</td>
+<td class="num">{{gib .PeakMemory}}</td><td class="num">{{ratio .PeakMemory .MemTotal}}</td>
+<td class="num">{{cores .PeakCPU .CPUCount}}</td><td class="num">{{pct .Saturated}}</td>
+</tr>
+{{else}}
+<tr><td colspan="9" class="muted">No steps with gauger samples in this window.</td></tr>
+{{end}}
+</table>
+{{end}}
