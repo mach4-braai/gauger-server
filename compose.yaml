@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gauger
+      POSTGRES_PASSWORD: gauger
+      POSTGRES_DB: gauger
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "gauger"]
+      interval: 5s
+      retries: 10
+
+  gauger-server:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GAUGER_DATABASE_URL: postgres://gauger:gauger@postgres:5432/gauger?sslmode=disable
+      GAUGER_TS_AUTHKEY: ${GAUGER_TS_AUTHKEY:-}
+      GAUGER_TS_HOSTNAME: ${GAUGER_TS_HOSTNAME:-gauger-server}
+      GAUGER_RETENTION_DAYS: ${GAUGER_RETENTION_DAYS:-90}
+    volumes:
+      - state:/var/lib/gauger-server
+
+volumes:
+  postgres:
+  state:
