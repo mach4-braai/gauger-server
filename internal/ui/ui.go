@@ -4,11 +4,16 @@ package ui
 import (
 	"bytes"
 	"embed"
+	"fmt"
 	"html/template"
 	"log/slog"
+	"math"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/mach4-braai/gauger-server/internal/github"
+	"github.com/mach4-braai/gauger-server/internal/spend"
 	"github.com/mach4-braai/gauger-server/internal/store"
 )
 
@@ -19,6 +24,7 @@ type UI struct {
 	Store  *store.Store
 	GitHub *github.Client
 	Creds  github.CredentialSource
+	Rates  spend.Rates
 	// DNSName is the server's MagicDNS name, used in the App manifest.
 	DNSName string
 	// GitHubURL is the web origin, https://github.com unless testing.
@@ -29,18 +35,90 @@ type UI struct {
 
 func (u *UI) Handler() http.Handler {
 	u.pages = map[string]*template.Template{}
-	for _, name := range []string{"setup", "setup_redirect"} {
+	for _, name := range []string{"setup", "setup_redirect", "jobs", "job", "steps", "regressions", "sizing", "spend"} {
 		u.pages[name] = template.Must(template.New("layout.html").Funcs(funcs).
 			ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html"))
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", u.jobs)
+	mux.HandleFunc("GET /jobs/{id}", u.job)
+	mux.HandleFunc("GET /steps", u.steps)
+	mux.HandleFunc("GET /regressions", u.regressions)
+	mux.HandleFunc("GET /sizing", u.sizing)
+	mux.HandleFunc("GET /spend", u.spend)
 	mux.HandleFunc("GET /setup", u.setup)
 	mux.HandleFunc("POST /setup/manifest", u.setupManifest)
 	mux.HandleFunc("GET /setup/callback", u.setupCallback)
 	return mux
 }
 
-var funcs = template.FuncMap{}
+var funcs = template.FuncMap{
+	"secs": func(s float64) string { return fmtDuration(time.Duration(s * float64(time.Second))) },
+	"span": func(a, b *time.Time) string {
+		if a == nil || b == nil {
+			return ""
+		}
+		return fmtDuration(b.Sub(*a))
+	},
+	"when": func(t *time.Time) string {
+		if t == nil {
+			return ""
+		}
+		return t.UTC().Format("2006-01-02 15:04")
+	},
+	"day": func(t time.Time) string { return t.UTC().Format("2006-01-02") },
+	"gib": func(v *float64) string {
+		return optional(v, func(x float64) string { return fmt.Sprintf("%.2f GiB", x/(1<<30)) })
+	},
+	"pct": func(v *float64) string {
+		return optional(v, func(x float64) string { return fmt.Sprintf("%.0f%%", x*100) })
+	},
+	"ratio": func(num, den *float64) string {
+		if num == nil || den == nil || *den == 0 {
+			return ""
+		}
+		return fmt.Sprintf("%.0f%%", *num / *den * 100)
+	},
+	"cores": func(util, n *float64) string {
+		if util == nil || n == nil {
+			return ""
+		}
+		return fmt.Sprintf("%.1f of %.0f", *util**n, *n)
+	},
+	"num":   func(v *float64) string { return optional(v, func(x float64) string { return fmt.Sprintf("%.0f", x) }) },
+	"times": func(a, b float64) string { return fmt.Sprintf("%.2f×", a/b) },
+	"usd":   func(v float64) string { return fmt.Sprintf("$%.2f", v) },
+	"join":  strings.Join,
+	"month": func(t time.Time) string { return t.UTC().Format("2006-01") },
+	"visibility": func(private *bool) string {
+		switch {
+		case private == nil:
+			return "(visibility unknown)"
+		case !*private:
+			return "(public)"
+		}
+		return ""
+	},
+}
+
+func optional(v *float64, f func(float64) string) string {
+	if v == nil {
+		return ""
+	}
+	return f(*v)
+}
+
+func fmtDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(math.Mod(d.Seconds(), 60)))
+	default:
+		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(math.Mod(d.Minutes(), 60)))
+	}
+}
 
 func (u *UI) render(w http.ResponseWriter, page string, data any) {
 	var buf bytes.Buffer
@@ -51,4 +129,9 @@ func (u *UI) render(w http.ResponseWriter, page string, data any) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(buf.Bytes())
+}
+
+func (u *UI) fail(w http.ResponseWriter, err error) {
+	slog.Error("ui query", "err", err)
+	http.Error(w, "query failed", http.StatusInternalServerError)
 }

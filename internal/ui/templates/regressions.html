@@ -1,0 +1,22 @@
+{{define "title"}}Regressions · gauger{{end}}
+{{define "content"}}
+<h1>Regressions</h1>
+<form class="filters">{{template "filters" .Filter}}
+<label>At least <input name="ratio" type="number" step="0.05" min="1" value="{{.Ratio}}" style="width:5em">× baseline</label>
+<label>and <input name="min" type="number" min="0" value="{{.Min}}" style="width:5em"> s</label>
+<button>Apply</button></form>
+<p class="muted">Each day's median step duration per branch, compared with the median of the {{.BaselineDays}} days before it on the same branch. Baselines need at least 3 runs.</p>
+<table>
+<tr><th>Day (UTC)</th><th>Repository</th><th>Workflow</th><th>Job</th><th>Step</th><th>Branch</th><th class="num">Median</th><th class="num">Runs</th><th class="num">Baseline</th><th class="num">Change</th></tr>
+{{range .Rows}}
+<tr>
+<td>{{day .Day}}</td><td>{{.Repository}}</td><td>{{.Workflow}}</td><td>{{.Job}}</td><td>{{.Step}}</td><td>{{.Branch}}</td>
+<td class="num">{{secs .Median}}</td><td class="num">{{.Runs}}</td>
+<td class="num">{{secs .Baseline}} <span class="muted">({{.BaseRuns}})</span></td>
+<td class="num bad">{{times .Median .Baseline}}</td>
+</tr>
+{{else}}
+<tr><td colspan="10" class="muted">No step is above its baseline by that much.</td></tr>
+{{end}}
+</table>
+{{end}}
