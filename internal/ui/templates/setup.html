@@ -1,0 +1,20 @@
+{{define "title"}}Setup · gauger{{end}}
+{{define "content"}}
+<h1>GitHub App</h1>
+{{with .Error}}<p class="error">{{.}}</p>{{end}}
+{{with .App}}
+  {{if .FromEnv}}
+  <p>App {{.AppID}} is configured from environment variables.</p>
+  {{else}}
+  <p>App <a href="{{.HTMLURL}}">{{.Slug}}</a> (ID {{.AppID}}) is configured.</p>
+  <p><a href="{{.HTMLURL}}/installations/new">Install it on repositories</a> to start receiving webhooks.</p>
+  {{end}}
+{{else}}
+<p>Create a GitHub App for this server. GitHub sets it up with <code>Actions: read</code> and <code>Metadata: read</code>, subscribes it to <code>workflow_run</code> and <code>workflow_job</code>, and points its webhook at this server's Funnel listener.</p>
+<form method="post" action="/setup/manifest">
+<p><label>App name <input name="name" value="{{.DefaultName}}" maxlength="34" required></label></p>
+<p><label>Organization <input name="org" placeholder="leave empty for your personal account"></label></p>
+<p><button type="submit">Create App on GitHub</button></p>
+</form>
+{{end}}
+{{end}}

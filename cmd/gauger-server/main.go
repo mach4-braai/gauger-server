@@ -8,9 +8,13 @@ import (
 	"syscall"
 
 	"github.com/mach4-braai/gauger-server/internal/config"
+	"github.com/mach4-braai/gauger-server/internal/github"
+	"github.com/mach4-braai/gauger-server/internal/reconcile"
 	"github.com/mach4-braai/gauger-server/internal/server"
 	"github.com/mach4-braai/gauger-server/internal/store"
 	"github.com/mach4-braai/gauger-server/internal/tailnet"
+	"github.com/mach4-braai/gauger-server/internal/ui"
+	"github.com/mach4-braai/gauger-server/internal/webhook"
 )
 
 func main() {
@@ -36,6 +40,14 @@ func run() error {
 	defer st.Close()
 	go st.RunMaintenance(ctx)
 
+	var creds github.CredentialSource = st
+	if cfg.GitHubApp != nil {
+		creds = github.StaticCredentials{C: cfg.GitHubApp}
+	}
+	gh := github.NewClient(cfg.GitHubAPIURL, creds)
+	rec := reconcile.New(st, gh)
+	go rec.Run(ctx)
+
 	node, err := tailnet.Join(ctx, cfg.TSDir, cfg.TSHostname, cfg.TSAuthKey)
 	if err != nil {
 		return err
@@ -43,6 +55,9 @@ func run() error {
 	defer node.Close()
 	slog.Info("joined tailnet", "dns_name", node.DNSName)
 
-	srv := &server.Server{Store: st}
+	srv := &server.Server{
+		Webhooks: &webhook.Handler{Store: st, Creds: creds, Wake: rec.Wake},
+		UI:       (&ui.UI{Store: st, GitHub: gh, Creds: creds, DNSName: node.DNSName, GitHubURL: cfg.GitHubURL}).Handler(),
+	}
 	return srv.Serve(ctx, server.Listeners{Runner: node.Runner, UI: node.UI, Webhook: node.Webhook})
 }

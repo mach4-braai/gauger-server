@@ -14,6 +14,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/mach4-braai/gauger-server/internal/github"
 )
 
 //go:embed migrations/*.sql
@@ -28,6 +30,9 @@ type Store struct {
 
 	partMu     sync.Mutex
 	partitions map[string]bool
+
+	credMu sync.Mutex
+	creds  *github.Credentials
 }
 
 // Open connects to Postgres, applies pending migrations and makes sure the

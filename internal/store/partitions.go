@@ -12,6 +12,10 @@ import (
 
 const partitionPrefix = "samples_p"
 
+// deliveryDedupWindow is how long delivery IDs are kept for deduplication.
+// GitHub only redelivers within three days.
+const deliveryDedupWindow = 30 * 24 * time.Hour
+
 // partitionAhead is how many days of future partitions maintenance creates.
 const partitionAhead = 2
 
@@ -95,7 +99,8 @@ func (s *Store) dropExpired(ctx context.Context, now time.Time) error {
 	return nil
 }
 
-// RunMaintenance repeats MaintainPartitions every hour until ctx ends.
+// RunMaintenance runs hourly partition maintenance and prunes old webhook
+// delivery IDs until ctx ends.
 func (s *Store) RunMaintenance(ctx context.Context) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
@@ -106,6 +111,9 @@ func (s *Store) RunMaintenance(ctx context.Context) {
 		case now := <-t.C:
 			if err := s.MaintainPartitions(ctx, now); err != nil {
 				slog.Error("partition maintenance", "err", err)
+			}
+			if err := s.PruneDeliveries(ctx, now.Add(-deliveryDedupWindow)); err != nil {
+				slog.Error("prune webhook deliveries", "err", err)
 			}
 		}
 	}
