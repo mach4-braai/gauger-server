@@ -1,0 +1,9 @@
+{{define "title"}}Create App · gauger{{end}}
+{{define "content"}}
+<h1>Continue on GitHub</h1>
+<form method="post" action="{{.Action}}">
+<input type="hidden" name="manifest" value="{{.Manifest}}">
+<p>GitHub asks you to confirm the App name, then sends you back here.</p>
+<p><button type="submit">Continue to GitHub</button></p>
+</form>
+{{end}}

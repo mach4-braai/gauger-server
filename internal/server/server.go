@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
-
-	"github.com/mach4-braai/gauger-server/internal/store"
 )
 
 type Server struct {
-	Store *store.Store
+	// Webhooks handles POST /webhooks/github.
+	Webhooks http.Handler
+	// UI handles every other path on the UI listener.
+	UI http.Handler
 }
 
 func healthz(w http.ResponseWriter, _ *http.Request) {
@@ -33,6 +34,7 @@ func (s *Server) RunnerHandler() http.Handler {
 func (s *Server) UIHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
+	mux.Handle("/", s.UI)
 	return mux
 }
 
@@ -40,6 +42,7 @@ func (s *Server) UIHandler() http.Handler {
 func (s *Server) WebhookHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
+	mux.Handle("POST /webhooks/github", s.Webhooks)
 	return mux
 }
 
