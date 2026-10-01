@@ -118,8 +118,8 @@ func (s *Store) Job(ctx context.Context, id int64) (*JobDetail, error) {
 		)
 		SELECT w.number, w.name, w.status, coalesce(w.conclusion, ''), w.started_at, w.completed_at,
 			max(m.value) FILTER (WHERE m.metric = $2 AND m.series = $3),
-			max(m.value) FILTER (WHERE m.metric = $4),
-			avg(CASE WHEN m.value >= $5 THEN 1.0 ELSE 0.0 END) FILTER (WHERE m.metric = $4),
+			max(m.value) FILTER (WHERE m.metric = $4 AND m.series = ''),
+			avg(CASE WHEN m.value >= $5 THEN 1.0 ELSE 0.0 END) FILTER (WHERE m.metric = $4 AND m.series = ''),
 			count(DISTINCT m.ts)
 		FROM w
 		LEFT JOIN samples m ON m.job_id = w.job_id AND m.ts >= w.started_at AND m.ts < w.ends_at
@@ -142,7 +142,7 @@ type Sample struct {
 func (s *Store) JobSeries(ctx context.Context, id int64) ([]Sample, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT ts, metric, value FROM samples
-		WHERE job_id = $1 AND (metric = $2 OR (metric = $3 AND series = $4))
+		WHERE job_id = $1 AND ((metric = $2 AND series = '') OR (metric = $3 AND series = $4))
 		ORDER BY ts`, id, MetricCPUUtilization, MetricMemoryUsage, SeriesMemoryUsed)
 	if err != nil {
 		return nil, err
@@ -268,8 +268,8 @@ func (s *Store) Sizing(ctx context.Context, f Filter) ([]Sizing, error) {
 		SELECT w.repository, w.workflow, w.job, w.step, count(DISTINCT w.job_id),
 			max(m.value) FILTER (WHERE m.metric = $3 AND m.series = $4),
 			max(k.mem_total),
-			max(m.value) FILTER (WHERE m.metric = $5),
-			avg(CASE WHEN m.value >= $8 THEN 1.0 ELSE 0.0 END) FILTER (WHERE m.metric = $5),
+			max(m.value) FILTER (WHERE m.metric = $5 AND m.series = ''),
+			avg(CASE WHEN m.value >= $8 THEN 1.0 ELSE 0.0 END) FILTER (WHERE m.metric = $5 AND m.series = ''),
 			max(k.cpus)
 		FROM win w
 		JOIN samples m ON m.job_id = w.job_id AND m.ts >= w.started_at AND m.ts < w.ends_at
