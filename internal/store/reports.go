@@ -40,7 +40,7 @@ type JobRow struct {
 	FromArtifact bool
 }
 
-func (s *Store) RecentJobs(ctx context.Context, limit int) ([]JobRow, error) {
+func (s *Store) RecentJobs(ctx context.Context, f Filter, limit int) ([]JobRow, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT j.id, j.repository, coalesce(j.workflow_name, r.workflow_name, ''), coalesce(j.name, ''),
 			coalesce(j.head_branch, r.head_branch, ''), j.status, coalesce(j.conclusion, ''),
@@ -49,8 +49,10 @@ func (s *Store) RecentJobs(ctx context.Context, limit int) ([]JobRow, error) {
 			j.artifact_ingested_at IS NOT NULL
 		FROM jobs j
 		LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
+		WHERE coalesce(j.started_at, j.created_at, j.runner_seen_at) >= $1
+		  AND ($2 = '' OR j.repository = $2)
 		ORDER BY coalesce(j.started_at, j.created_at, j.runner_seen_at) DESC NULLS LAST
-		LIMIT $1`, limit)
+		LIMIT $3`, f.Since, f.Repository, limit)
 	if err != nil {
 		return nil, err
 	}

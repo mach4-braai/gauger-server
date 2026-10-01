@@ -22,7 +22,7 @@ Self-hosted server and web UI that joins GitHub Actions webhook timings with [ga
 
 ## Web UI
 
-- **Recent jobs** link to a job view with run, job and step timings from GitHub, a CPU and memory chart from gauger, and runner usage per step.
+- **Recent jobs**, filtered by repository and days like the other reports, link to a job view with run, job and step timings from GitHub, a CPU and memory chart from gauger, and runner usage per step.
 - **Slow steps.** p50 and p95 duration per step name.
 - **Regressions.** Each day's median step duration per branch against the median of the 14 days before it.
 - **Right-sizing.** Peak memory against `MemTotal` and CPU against `nproc` per step. These are runner-level values during the step's time window, not the step's own usage.

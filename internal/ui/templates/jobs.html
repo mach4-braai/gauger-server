@@ -1,8 +1,10 @@
 {{define "content"}}
 <h1>Recent jobs</h1>
+<form class="filters">{{template "filters" .Filter}} <button>Apply</button></form>
+<p class="muted">The 100 most recent jobs in this window.</p>
 <table>
 <tr><th>Repository</th><th>Workflow</th><th>Job</th><th>Branch</th><th>Status</th><th>Started (UTC)</th><th class="num">Duration</th><th class="num">Samples</th></tr>
-{{range .}}
+{{range .Rows}}
 <tr>
 <td>{{.Repository}}</td><td>{{.Workflow}}</td>
 <td><a href="/jobs/{{.ID}}">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</a></td>
@@ -13,7 +15,7 @@
 <td class="num">{{.Samples}}{{if .FromArtifact}} <span class="muted">(artifact)</span>{{end}}</td>
 </tr>
 {{else}}
-<tr><td colspan="8" class="muted">No jobs yet. Install the GitHub App from <a href="/setup">Setup</a> and run a workflow.</td></tr>
+<tr><td colspan="8" class="muted">{{if .Filter.Repos}}No jobs in this window.{{else}}No jobs yet. Install the GitHub App from <a href="/setup">Setup</a> and run a workflow.{{end}}</td></tr>
 {{end}}
 </table>
 {{end}}

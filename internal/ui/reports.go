@@ -37,12 +37,17 @@ func floatParam(r *http.Request, key string, def float64) float64 {
 }
 
 func (u *UI) jobs(w http.ResponseWriter, r *http.Request) {
-	jobs, err := u.Store.RecentJobs(r.Context(), 100)
+	f, form, err := u.filter(r, 7)
 	if err != nil {
 		u.fail(w, err)
 		return
 	}
-	u.render(w, "jobs", jobs)
+	jobs, err := u.Store.RecentJobs(r.Context(), f, 100)
+	if err != nil {
+		u.fail(w, err)
+		return
+	}
+	u.render(w, "jobs", map[string]any{"Filter": form, "Rows": jobs})
 }
 
 func (u *UI) job(w http.ResponseWriter, r *http.Request) {
