@@ -21,6 +21,11 @@ const (
 // saturated.
 const saturatedCPU = 0.9
 
+const stepWindows = `
+			SELECT s.*, least(s.completed_at + interval '1 second',
+				min(s.started_at) OVER (PARTITION BY s.job_id ORDER BY s.number ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING)) AS ends_at
+			FROM steps s`
+
 type JobRow struct {
 	ID           int64
 	Repository   string
@@ -40,7 +45,7 @@ func (s *Store) RecentJobs(ctx context.Context, limit int) ([]JobRow, error) {
 		SELECT j.id, j.repository, coalesce(j.workflow_name, r.workflow_name, ''), coalesce(j.name, ''),
 			coalesce(j.head_branch, r.head_branch, ''), j.status, coalesce(j.conclusion, ''),
 			j.started_at, j.completed_at,
-			(SELECT count(*) FROM samples m WHERE m.job_id = j.id),
+			(SELECT count(DISTINCT m.ts) FROM samples m WHERE m.job_id = j.id),
 			j.artifact_ingested_at IS NOT NULL
 		FROM jobs j
 		LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
@@ -88,7 +93,7 @@ func (s *Store) Job(ctx context.Context, id int64) (*JobDetail, error) {
 		SELECT j.id, j.repository, coalesce(j.workflow_name, r.workflow_name, ''), coalesce(j.name, ''),
 			coalesce(j.head_branch, r.head_branch, ''), j.status, coalesce(j.conclusion, ''),
 			j.started_at, j.completed_at,
-			(SELECT count(*) FROM samples m WHERE m.job_id = j.id),
+			(SELECT count(DISTINCT m.ts) FROM samples m WHERE m.job_id = j.id),
 			j.artifact_ingested_at IS NOT NULL,
 			j.run_id, j.run_attempt, coalesce(j.runner_name, ''), j.labels, coalesce(j.html_url, ''),
 			coalesce(r.event, ''), coalesce(r.head_sha, ''), j.runner_seen_at, j.runner_done_at,
@@ -108,16 +113,18 @@ func (s *Store) Job(ctx context.Context, id int64) (*JobDetail, error) {
 		return nil, err
 	}
 	rows, err := s.Pool.Query(ctx, `
-		SELECT s.number, s.name, s.status, coalesce(s.conclusion, ''), s.started_at, s.completed_at,
+		WITH w AS (`+stepWindows+`
+			WHERE s.job_id = $1
+		)
+		SELECT w.number, w.name, w.status, coalesce(w.conclusion, ''), w.started_at, w.completed_at,
 			max(m.value) FILTER (WHERE m.metric = $2 AND m.series = $3),
 			max(m.value) FILTER (WHERE m.metric = $4),
 			avg(CASE WHEN m.value >= $5 THEN 1.0 ELSE 0.0 END) FILTER (WHERE m.metric = $4),
-			count(m.ts)
-		FROM steps s
-		LEFT JOIN samples m ON m.job_id = s.job_id AND m.ts >= s.started_at AND m.ts < s.completed_at + interval '1 second'
-		WHERE s.job_id = $1
-		GROUP BY s.number, s.name, s.status, s.conclusion, s.started_at, s.completed_at
-		ORDER BY s.number`, id, MetricMemoryUsage, SeriesMemoryUsed, MetricCPUUtilization, saturatedCPU)
+			count(DISTINCT m.ts)
+		FROM w
+		LEFT JOIN samples m ON m.job_id = w.job_id AND m.ts >= w.started_at AND m.ts < w.ends_at
+		GROUP BY w.number, w.name, w.status, w.conclusion, w.started_at, w.completed_at
+		ORDER BY w.number`, id, MetricMemoryUsage, SeriesMemoryUsed, MetricCPUUtilization, saturatedCPU)
 	if err != nil {
 		return nil, err
 	}
@@ -251,11 +258,12 @@ func (s *Store) Sizing(ctx context.Context, f Filter) ([]Sizing, error) {
 	rows, err := s.Pool.Query(ctx, `
 		WITH win AS (
 			SELECT j.repository, coalesce(j.workflow_name, '') AS workflow, coalesce(j.name, '') AS job,
-				s.name AS step, s.job_id, s.started_at, s.completed_at
-			FROM steps s JOIN jobs j ON j.id = s.job_id
-			WHERE s.started_at >= $1 AND s.completed_at IS NOT NULL
-			  AND ($2 = '' OR j.repository = $2)
-			  AND EXISTS (SELECT 1 FROM samples x WHERE x.job_id = s.job_id)
+				w.name AS step, w.job_id, w.started_at, w.ends_at
+			FROM (`+stepWindows+`
+				WHERE s.started_at >= $1 AND s.completed_at IS NOT NULL
+			) w JOIN jobs j ON j.id = w.job_id
+			WHERE ($2 = '' OR j.repository = $2)
+			  AND EXISTS (SELECT 1 FROM samples x WHERE x.job_id = w.job_id)
 		)
 		SELECT w.repository, w.workflow, w.job, w.step, count(DISTINCT w.job_id),
 			max(m.value) FILTER (WHERE m.metric = $3 AND m.series = $4),
@@ -264,7 +272,7 @@ func (s *Store) Sizing(ctx context.Context, f Filter) ([]Sizing, error) {
 			avg(CASE WHEN m.value >= $8 THEN 1.0 ELSE 0.0 END) FILTER (WHERE m.metric = $5),
 			max(k.cpus)
 		FROM win w
-		JOIN samples m ON m.job_id = w.job_id AND m.ts >= w.started_at AND m.ts < w.completed_at + interval '1 second'
+		JOIN samples m ON m.job_id = w.job_id AND m.ts >= w.started_at AND m.ts < w.ends_at
 		CROSS JOIN LATERAL (
 			SELECT max(value) FILTER (WHERE metric = $6) AS mem_total, max(value) FILTER (WHERE metric = $7) AS cpus
 			FROM samples WHERE job_id = w.job_id AND metric IN ($6, $7)

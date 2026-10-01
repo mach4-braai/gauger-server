@@ -120,6 +120,39 @@ func TestSizingUsesRunnerSamplesInsideEachStep(t *testing.T) {
 	}
 }
 
+func TestJobCountsEachSampleInstantInOneStep(t *testing.T) {
+	st := storetest.Open(t, 90*24*time.Hour)
+	ctx := context.Background()
+	start := time.Now().Add(-time.Hour).Truncate(time.Second)
+	mid, end := start.Add(10*time.Second), start.Add(20*time.Second)
+	j := &github.Job{ID: 1, RunID: 1, RunAttempt: 1, Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end,
+		Steps: []github.Step{
+			{Number: 1, Name: "build", Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &mid},
+			{Number: 2, Name: "test", Status: "completed", Conclusion: "success", StartedAt: &mid, CompletedAt: &end},
+		}}
+	if err := st.InTx(ctx, func(tx pgx.Tx) error { return store.UpsertJob(ctx, tx, "acme/app", j) }); err != nil {
+		t.Fatal(err)
+	}
+	id := runner.Identity{RunID: 1, RunAttempt: 1, CheckRunID: 1, Repository: "acme/app"}
+	var pts []runner.Point
+	for at := start; !at.After(end); at = at.Add(time.Second) {
+		pts = append(pts,
+			runner.Point{Identity: id, Metric: store.MetricCPUUtilization, Time: at, Value: 0.5},
+			runner.Point{Identity: id, Metric: store.MetricMemoryUsage, Series: store.SeriesMemoryUsed, Time: at, Value: 1},
+			runner.Point{Identity: id, Metric: store.MetricMemoryUsage, Series: "system.memory.state=free", Time: at, Value: 2})
+	}
+	if _, err := st.InsertSamples(ctx, 1, pts); err != nil {
+		t.Fatal(err)
+	}
+	d, err := st.Job(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Samples != 21 || len(d.Steps) != 2 || d.Steps[0].Samples != 10 || d.Steps[1].Samples != 11 {
+		t.Fatalf("job samples %d, steps %+v; want 21 instants split 10 and 11", d.Samples, d.Steps)
+	}
+}
+
 func TestSpendRoundsEachJobUp(t *testing.T) {
 	st := storetest.Open(t, 90*24*time.Hour)
 	ctx := context.Background()
