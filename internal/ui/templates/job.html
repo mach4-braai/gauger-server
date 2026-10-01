@@ -9,7 +9,7 @@ Run {{.RunID}} attempt {{.RunAttempt}}{{with .Branch}} on <code>{{.}}</code>{{en
 </p>
 <p class="muted">
 Runner {{if .RunnerName}}{{.RunnerName}}{{else}}unknown{{end}}{{with .Labels}} ({{join . ", "}}){{end}}.
-{{if .RunnerSeen}}gauger reported {{.Samples}} samples{{if .RunnerDone}} and finished{{end}}{{if .FromArtifact}}, some from the fallback artifact{{end}}.{{else}}No gauger data for this job.{{end}}
+{{if .RunnerSeen}}gauger reported {{.Samples}} samples{{if .RunnerDone}} and finished{{end}}{{if .FromArtifact}}, some from the fallback artifact{{end}}.{{else if .FromArtifact}}gauger never reached the server. Its fallback artifact held {{.Samples}} samples.{{else}}No gauger data for this job.{{end}}
 {{with .MemTotal}}MemTotal {{gib .}}.{{end}} {{with .CPUCount}}nproc {{num .}}.{{end}}
 </p>
 {{end}}

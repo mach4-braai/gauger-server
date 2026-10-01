@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/mach4-braai/gauger-server/internal/github"
+	"github.com/mach4-braai/gauger-server/internal/runner"
 	"github.com/mach4-braai/gauger-server/internal/store"
 )
 
@@ -115,9 +116,33 @@ func (r *Reconciler) runTask(ctx context.Context, t store.Task) (time.Duration, 
 		return 0, err
 	}
 	if status == "completed" {
-		return 0, nil
+		return 0, r.queueArtifactSearches(ctx, t.Repository, runID)
 	}
 	return backoff(t.Attempts, 5*time.Minute, time.Hour), nil
+}
+
+// queueArtifactSearches lists a completed run's artifacts once and queues an
+// artifact search for each job with a fallback artifact, including jobs whose
+// gauger never reached the server.
+func (r *Reconciler) queueArtifactSearches(ctx context.Context, repo string, runID int64) error {
+	inst, err := r.Installation(ctx, repo)
+	if err != nil {
+		return err
+	}
+	arts, err := r.GitHub.ListRunArtifacts(ctx, inst, repo, runID, "")
+	if err != nil {
+		return err
+	}
+	var jobIDs []int64
+	for _, a := range arts {
+		if id, ok := runner.ArtifactJobID(a.Name); ok && !a.Expired {
+			jobIDs = append(jobIDs, id)
+		}
+	}
+	if len(jobIDs) == 0 {
+		return nil
+	}
+	return r.Store.QueueArtifactSearches(ctx, runID, jobIDs)
 }
 
 // backoff doubles base per attempt up to max.

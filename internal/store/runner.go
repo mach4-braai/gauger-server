@@ -43,6 +43,20 @@ func scheduleFollowups(ctx context.Context, tx pgx.Tx, jobID int64) error {
 	return err
 }
 
+// QueueArtifactSearches adds an artifact search for each completed job of
+// runID in jobIDs that gauger never said done for and that has no ingested
+// artifact.
+func (s *Store) QueueArtifactSearches(ctx context.Context, runID int64, jobIDs []int64) error {
+	_, err := s.Pool.Exec(ctx, `
+		INSERT INTO tasks (kind, key, repository, next_at, expires_at)
+		SELECT $1, id::text, repository, greatest(now(), completed_at + $4 * interval '1 second'), completed_at + interval '7 days'
+		FROM jobs
+		WHERE id = ANY($2) AND run_id = $3 AND status = 'completed' AND completed_at IS NOT NULL
+		  AND runner_done_at IS NULL AND artifact_ingested_at IS NULL
+		ON CONFLICT DO NOTHING`, KindArtifact, jobIDs, runID, int(ArtifactGrace.Seconds()))
+	return err
+}
+
 // MarkRunnerSeen records that gauger reported on a job, creating it as
 // pending when no webhook or REST data has arrived yet.
 func (s *Store) MarkRunnerSeen(ctx context.Context, jobID int64, id runner.Identity, done bool) error {
