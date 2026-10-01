@@ -16,13 +16,14 @@ type Rate struct {
 }
 
 // DefaultRates are GitHub's published per-minute rates, checked on
-// 2026-09-30 against docs.github.com/en/billing/reference/actions-runner-pricing.
+// 2026-10-01 against docs.github.com/en/billing/reference/actions-runner-pricing.
 var DefaultRates = map[string]Rate{
 	"ubuntu-slim":      {0.002, true},
 	"ubuntu-latest":    {0.006, true},
 	"ubuntu-26.04":     {0.006, true},
 	"ubuntu-24.04":     {0.006, true},
 	"ubuntu-22.04":     {0.006, true},
+	"ubuntu-26.04-arm": {0.005, true},
 	"ubuntu-24.04-arm": {0.005, true},
 	"ubuntu-22.04-arm": {0.005, true},
 	"windows-latest":   {0.010, true},
