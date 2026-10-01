@@ -1,0 +1,32 @@
+{{define "title"}}Daily timing · gauger{{end}}
+{{define "content"}}
+<h1>Daily timing</h1>
+<form class="filters">{{template "filters" .Filter}} <button>Apply</button></form>
+<p class="muted">Median duration per UTC day, at most 60 days. A workflow run lasts from its first job's start to its last job's end, and counts only when every job succeeded or was skipped. Jobs count only when they succeeded. Hover a cell for its number of runs.</p>
+<h2>Workflows</h2>
+{{if .Workflows}}
+<div style="overflow-x:auto">
+<table style="white-space:nowrap">
+<tr><th>Repository</th><th>Workflow</th>{{range $.Days}}<th class="num">{{.Format "01-02"}}</th>{{end}}</tr>
+{{range .Workflows}}
+<tr><td>{{.Repository}}</td><td>{{.Workflow}}</td>{{range .Cells}}<td class="num">{{if .Runs}}<span title="{{.Runs}} runs">{{secs .Median}}</span>{{end}}</td>{{end}}</tr>
+{{end}}
+</table>
+</div>
+{{else}}
+<p class="muted">No successful runs in this window.</p>
+{{end}}
+<h2>Jobs</h2>
+{{if .Jobs}}
+<div style="overflow-x:auto">
+<table style="white-space:nowrap">
+<tr><th>Repository</th><th>Workflow</th><th>Job</th>{{range $.Days}}<th class="num">{{.Format "01-02"}}</th>{{end}}</tr>
+{{range .Jobs}}
+<tr><td>{{.Repository}}</td><td>{{.Workflow}}</td><td>{{.Job}}</td>{{range .Cells}}<td class="num">{{if .Runs}}<span title="{{.Runs}} runs">{{secs .Median}}</span>{{end}}</td>{{end}}</tr>
+{{end}}
+</table>
+</div>
+{{else}}
+<p class="muted">No successful jobs in this window.</p>
+{{end}}
+{{end}}

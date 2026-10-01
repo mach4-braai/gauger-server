@@ -35,7 +35,7 @@ type UI struct {
 
 func (u *UI) Handler() http.Handler {
 	u.pages = map[string]*template.Template{}
-	for _, name := range []string{"setup", "setup_redirect", "jobs", "job", "steps", "regressions", "sizing", "spend"} {
+	for _, name := range []string{"setup", "setup_redirect", "jobs", "job", "steps", "regressions", "daily", "sizing", "spend"} {
 		u.pages[name] = template.Must(template.New("layout.html").Funcs(funcs).
 			ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html"))
 	}
@@ -44,6 +44,7 @@ func (u *UI) Handler() http.Handler {
 	mux.HandleFunc("GET /jobs/{id}", u.job)
 	mux.HandleFunc("GET /steps", u.steps)
 	mux.HandleFunc("GET /regressions", u.regressions)
+	mux.HandleFunc("GET /daily", u.daily)
 	mux.HandleFunc("GET /sizing", u.sizing)
 	mux.HandleFunc("GET /spend", u.spend)
 	mux.HandleFunc("GET /setup", u.setup)
