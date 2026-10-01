@@ -102,6 +102,7 @@ func TestSizingUsesRunnerSamplesInsideEachStep(t *testing.T) {
 		{Identity: id0, Metric: store.MetricMemoryUsage, Series: store.SeriesMemoryUsed, Time: start.Add(5 * time.Minute), Value: 7.5 * (1 << 30)},
 		{Identity: id0, Metric: store.MetricCPUUtilization, Time: start.Add(10 * time.Second), Value: 0.95},
 		{Identity: id0, Metric: store.MetricCPUUtilization, Time: start.Add(20 * time.Second), Value: 0.5},
+		{Identity: id0, Metric: store.MetricCPUUtilization, Series: "cpu.mode=idle", Time: start.Add(15 * time.Second), Value: 0.99},
 	}
 	if _, err := st.InsertSamples(ctx, id, pts); err != nil {
 		t.Fatal(err)
@@ -115,7 +116,7 @@ func TestSizingUsesRunnerSamplesInsideEachStep(t *testing.T) {
 	}
 	r := rows[0]
 	if *r.PeakMemory != 6<<30 || *r.MemTotal != 8<<30 || *r.PeakCPU != 0.95 || *r.CPUCount != 4 || *r.Saturated != 0.5 {
-		t.Fatalf("sizing = mem %v/%v cpu %v x%v saturated %v; want the used series inside the step only",
+		t.Fatalf("sizing = mem %v/%v cpu %v x%v saturated %v; want the used memory and attribute-free CPU series inside the step only",
 			*r.PeakMemory, *r.MemTotal, *r.PeakCPU, *r.CPUCount, *r.Saturated)
 	}
 }

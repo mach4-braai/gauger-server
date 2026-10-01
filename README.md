@@ -38,7 +38,13 @@ This contract is shared with [gauger](https://github.com/mach4-braai/gauger). Ch
 - Identity attributes go on the resource or on each data point: `github.run_id`, `github.run_attempt`, `github.check_run_id`, `github.repository`, `github.workflow`, `github.job` and `runner.name`. `github.check_run_id` may be empty when `runner.name` is set.
 - A `503` with `Retry-After` means the server does not know the job yet or GitHub is rate limiting it. Keep the data buffered and retry.
 - The fallback artifact `gauger-<check_run_id>` holds one file per unsent batch, each an `ExportMetricsServiceRequest` in protobuf.
-- The UI reads these metrics: `system.cpu.utilization` (0 to 1, whole runner), `system.cpu.logical.count` (`nproc`), `system.memory.usage` with `system.memory.state=used` (bytes), and `system.memory.limit` (`MemTotal` in bytes). Other metrics are stored as sent.
+- The reports read these metric shapes. A client that sends another shape gets wrong numbers, so changing one is a contract change.
+  - Every point of one sample has the same timestamp. Sample counts are distinct timestamps.
+  - `system.cpu.utilization`: one point per sample with no attributes, the busy share of all CPUs from 0 to 1. Peak CPU is its `max`, and time at ≥90% CPU is the share of its points at or above 0.9. Points that carry attributes, such as `cpu.mode`, are stored but not read.
+  - `system.memory.usage` with `system.memory.state=used`, in bytes. Peak memory is its `max`.
+  - `system.memory.limit`: `MemTotal` in bytes.
+  - `system.cpu.logical.count`: `nproc`.
+  - Other metrics are stored as sent.
 
 ## Self-hosting
 
