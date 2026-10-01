@@ -332,6 +332,45 @@ func TestFallbackArtifactFillsMissingSamples(t *testing.T) {
 	}
 }
 
+func TestCompletedRunReadsArtifactsOfJobsGaugerNeverReached(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	started := time.Now().Add(-20 * time.Minute).Truncate(time.Second)
+
+	var zipped bytes.Buffer
+	zw := zip.NewWriter(&zipped)
+	f, _ := zw.Create("0.pb")
+	f.Write(batch(777, started, 0.4, 0.5, 0.6))
+	zw.Close()
+	e.gh.Mu.Lock()
+	e.gh.Runs["100:1"] = &github.Run{ID: 100, RunAttempt: 1, Status: "completed", Conclusion: "success", Repository: github.Repository{FullName: "acme/app"}}
+	e.gh.Jobs[777] = completedJob(777, started, started.Add(10*time.Minute))
+	e.gh.Jobs[778] = completedJob(778, started, started.Add(10*time.Minute))
+	e.gh.Artifacts[runner.ArtifactName(777)] = github.Artifact{ID: 9001, Name: runner.ArtifactName(777)}
+	e.gh.Artifacts["coverage"] = github.Artifact{ID: 9002, Name: "coverage"}
+	e.gh.Zips[9001] = zipped.Bytes()
+	e.gh.Mu.Unlock()
+	if err := store.EnqueueTask(ctx, e.st.Pool, store.KindRun, store.RunKey(100, 1), "acme/app", time.Now().Add(-time.Second), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+
+	e.rec.ProcessDue(ctx)
+	if n := e.count(t, `SELECT count(*) FROM tasks WHERE kind = 'artifact'`); n != 1 {
+		t.Fatalf("artifact searches = %d, want one for the job with an artifact", n)
+	}
+	e.rec.ProcessDue(ctx)
+
+	if n := e.count(t, `SELECT count(*) FROM samples WHERE job_id = 777`); n != 3 {
+		t.Fatalf("samples = %d, want 3 from the artifact", n)
+	}
+	if n := e.count(t, `SELECT count(*) FROM jobs WHERE id = 777 AND runner_seen_at IS NULL AND artifact_ingested_at IS NOT NULL`); n != 1 {
+		t.Fatal("artifact ingestion should be recorded on a job gauger never reached")
+	}
+	if n := e.count(t, `SELECT count(*) FROM tasks`); n != 0 {
+		t.Fatalf("tasks left = %d", n)
+	}
+}
+
 func TestRunnerNameMatchesTheJobInProgress(t *testing.T) {
 	e := newEnv(t)
 	now := time.Now()

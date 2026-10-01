@@ -376,20 +376,32 @@ func (c *Client) ListRunAttemptJobs(ctx context.Context, inst int64, repo string
 	}
 }
 
-// ListRunArtifacts returns the run's artifacts called name.
+// ListRunArtifacts returns the run's artifacts called name, or all of them
+// when name is empty.
 func (c *Client) ListRunArtifacts(ctx context.Context, inst int64, repo string, runID int64, name string) ([]Artifact, error) {
 	owner, repoName, err := splitRepo(repo)
 	if err != nil {
 		return nil, err
 	}
-	var out struct {
-		Artifacts []Artifact `json:"artifacts"`
+	filter := ""
+	if name != "" {
+		filter = "&name=" + url.QueryEscape(name)
 	}
-	path := fmt.Sprintf("/repos/%s/%s/actions/runs/%d/artifacts?name=%s", owner, repoName, runID, url.QueryEscape(name))
-	if err := c.do(ctx, inst, http.MethodGet, path, nil, &out); err != nil {
-		return nil, err
+	var arts []Artifact
+	for page := 1; ; page++ {
+		var out struct {
+			TotalCount int        `json:"total_count"`
+			Artifacts  []Artifact `json:"artifacts"`
+		}
+		path := fmt.Sprintf("/repos/%s/%s/actions/runs/%d/artifacts?per_page=100&page=%d%s", owner, repoName, runID, page, filter)
+		if err := c.do(ctx, inst, http.MethodGet, path, nil, &out); err != nil {
+			return nil, err
+		}
+		arts = append(arts, out.Artifacts...)
+		if len(out.Artifacts) < 100 || len(arts) >= out.TotalCount {
+			return arts, nil
+		}
 	}
-	return out.Artifacts, nil
 }
 
 // DownloadArtifact returns the artifact's zip. GitHub redirects to blob

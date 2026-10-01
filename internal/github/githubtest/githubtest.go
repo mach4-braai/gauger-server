@@ -147,8 +147,10 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	case len(rest) == 3 && rest[0] == "runs" && rest[2] == "artifacts":
 		var arts []github.Artifact
-		if a, ok := s.Artifacts[r.URL.Query().Get("name")]; ok {
-			arts = append(arts, a)
+		for name, a := range s.Artifacts {
+			if q := r.URL.Query().Get("name"); q == "" || q == name {
+				arts = append(arts, a)
+			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"total_count": len(arts), "artifacts": arts})
 		return
