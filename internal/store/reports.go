@@ -317,20 +317,22 @@ func (s *Store) SpendGroups(ctx context.Context, f Filter) ([]SpendGroup, error)
 }
 
 // DailyDuration is the median duration of a workflow's runs, or of one of
-// its jobs, on one UTC day. Job is empty for the workflow.
+// its jobs, in one bucket. Job is empty for the workflow.
 type DailyDuration struct {
 	Repository string
 	Workflow   string
 	Job        string
-	Day        time.Time
+	Bucket     time.Time
 	Median     float64
 	Runs       int64
 }
 
-// DailyDurations returns per-day medians for successful jobs and for runs
-// GitHub reports as completed with success. A run lasts from its first
-// successful job's start to its last successful job's end.
-func (s *Store) DailyDurations(ctx context.Context, f Filter) ([]DailyDuration, error) {
+// DailyDurations returns per-bucket medians for successful jobs and for
+// runs GitHub reports as completed with success. A run lasts from its
+// first successful job's start to its last successful job's end. bucket
+// is "day", "week" or "month"; weeks start Monday UTC. The median is
+// taken over every run (or job) in the bucket, not over daily medians.
+func (s *Store) DailyDurations(ctx context.Context, f Filter, bucket string) ([]DailyDuration, error) {
 	rows, err := s.Pool.Query(ctx, `
 		WITH j AS (
 			SELECT j.repository, coalesce(j.workflow_name, r.workflow_name, '') AS workflow, coalesce(j.name, '') AS job,
@@ -349,17 +351,17 @@ func (s *Store) DailyDurations(ctx context.Context, f Filter) ([]DailyDuration, 
 			GROUP BY repository, workflow, run_id, run_attempt
 			HAVING bool_and(run_status = 'completed' AND run_conclusion = 'success') AND bool_or(conclusion = 'success')
 		)
-		SELECT repository, workflow, '', date_trunc('day', started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
+		SELECT repository, workflow, '', date_trunc($3, started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
 			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - started_at)), count(*)
 		FROM run
 		GROUP BY 1, 2, 3, 4
 		UNION ALL
-		SELECT repository, workflow, job, date_trunc('day', started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
+		SELECT repository, workflow, job, date_trunc($3, started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
 			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - started_at)), count(*)
 		FROM j
 		WHERE conclusion = 'success'
 		GROUP BY 1, 2, 3, 4
-		ORDER BY 1, 2, 3, 4`, f.Since, f.Repository)
+		ORDER BY 1, 2, 3, 4`, f.Since, f.Repository, bucket)
 	if err != nil {
 		return nil, err
 	}

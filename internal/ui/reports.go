@@ -121,7 +121,7 @@ func (u *UI) sizing(w http.ResponseWriter, r *http.Request) {
 	u.render(w, "sizing", map[string]any{"Filter": form, "Rows": rows})
 }
 
-const maxDailyDays = 60
+const maxDailyBuckets = 60
 
 type dailyCell struct {
 	Median float64
@@ -135,23 +135,83 @@ type dailyRow struct {
 	Cells      []dailyCell
 }
 
+// dailyBucket truncates a time to its bucket's start, steps to the next
+// bucket and formats a bucket's label.
+type dailyBucket struct {
+	trunc func(time.Time) time.Time
+	next  func(time.Time) time.Time
+	label func(time.Time) string
+}
+
+func startOfWeek(t time.Time) time.Time {
+	t = t.Truncate(24 * time.Hour)
+	wd := int(t.Weekday())
+	if wd == 0 {
+		wd = 7
+	}
+	return t.AddDate(0, 0, 1-wd)
+}
+
+var dailyBuckets = map[string]dailyBucket{
+	"day": {
+		trunc: func(t time.Time) time.Time { return t.Truncate(24 * time.Hour) },
+		next:  func(t time.Time) time.Time { return t.AddDate(0, 0, 1) },
+		label: func(t time.Time) string { return t.Format("01-02") },
+	},
+	"week": {
+		trunc: startOfWeek,
+		next:  func(t time.Time) time.Time { return t.AddDate(0, 0, 7) },
+		label: func(t time.Time) string { _, w := t.ISOWeek(); return fmt.Sprintf("W%02d", w) },
+	},
+	"month": {
+		trunc: func(t time.Time) time.Time { return time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC) },
+		next:  func(t time.Time) time.Time { return t.AddDate(0, 1, 0) },
+		label: func(t time.Time) string { return t.Format("2006-01") },
+	},
+}
+
+// bucketName reads "bucket" from the query, falling back to "day" when
+// it is absent or unknown.
+func bucketName(r *http.Request) string {
+	name := r.URL.Query().Get("bucket")
+	if _, ok := dailyBuckets[name]; ok {
+		return name
+	}
+	return "day"
+}
+
+// bucketStarts lists each bucket's start from days ago through the
+// current bucket, trimmed to the most recent maxDailyBuckets.
+func bucketStarts(bucketParam string, days int, now time.Time) []time.Time {
+	b := dailyBuckets[bucketParam]
+	first := b.trunc(now.AddDate(0, 0, 1-days))
+	var starts []time.Time
+	for t := first; !t.After(b.trunc(now)); t = b.next(t) {
+		starts = append(starts, t)
+	}
+	if len(starts) > maxDailyBuckets {
+		starts = starts[len(starts)-maxDailyBuckets:]
+	}
+	return starts
+}
+
 func (u *UI) daily(w http.ResponseWriter, r *http.Request) {
 	f, form, err := u.filter(r, 14)
 	if err != nil {
 		u.fail(w, err)
 		return
 	}
-	form.Days = min(form.Days, maxDailyDays)
-	first := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, 1-form.Days)
-	f.Since = first
-	durations, err := u.Store.DailyDurations(r.Context(), f)
+	bucketParam := bucketName(r)
+	starts := bucketStarts(bucketParam, form.Days, time.Now().UTC())
+	f.Since = starts[0]
+	durations, err := u.Store.DailyDurations(r.Context(), f, bucketParam)
 	if err != nil {
 		u.fail(w, err)
 		return
 	}
-	days := make([]time.Time, form.Days)
-	for i := range days {
-		days[i] = first.AddDate(0, 0, i)
+	index := make(map[int64]int, len(starts))
+	for i, t := range starts {
+		index[t.Unix()] = i
 	}
 	var workflows, jobs []dailyRow
 	for _, d := range durations {
@@ -161,19 +221,19 @@ func (u *UI) daily(w http.ResponseWriter, r *http.Request) {
 		}
 		n := len(*rows)
 		if n == 0 || (*rows)[n-1].Repository != d.Repository || (*rows)[n-1].Workflow != d.Workflow || (*rows)[n-1].Job != d.Job {
-			*rows = append(*rows, dailyRow{Repository: d.Repository, Workflow: d.Workflow, Job: d.Job, Cells: make([]dailyCell, len(days))})
+			*rows = append(*rows, dailyRow{Repository: d.Repository, Workflow: d.Workflow, Job: d.Job, Cells: make([]dailyCell, len(starts))})
 			n++
 		}
-		if i := int(d.Day.Sub(first) / (24 * time.Hour)); i >= 0 && i < len(days) {
+		if i, ok := index[d.Bucket.UTC().Unix()]; ok {
 			(*rows)[n-1].Cells[i] = dailyCell{Median: d.Median, Runs: d.Runs}
 		}
 	}
-	labels := make([]string, len(days))
-	for i, d := range days {
-		labels[i] = d.Format("01-02")
+	labels := make([]string, len(starts))
+	for i, t := range starts {
+		labels[i] = dailyBuckets[bucketParam].label(t)
 	}
 	u.render(w, "daily", map[string]any{
-		"Filter": form, "Days": days, "Workflows": workflows, "Jobs": jobs,
+		"Filter": form, "Labels": labels, "Bucket": bucketParam, "Workflows": workflows, "Jobs": jobs,
 		"Chart": dailyChart(labels, workflows, workflowLabel(form.Repo == "")),
 	})
 }

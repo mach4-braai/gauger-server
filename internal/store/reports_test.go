@@ -163,13 +163,13 @@ func TestDailyDurationsPerWorkflowAndJob(t *testing.T) {
 	run(5, day.AddDate(0, 0, 1), "completed", "success", job{"a", "completed", "success", 0, 100})
 	run(6, day, "completed", "failure", job{"a", "completed", "success", 0, 80}, job{"b", "completed", "failure", untimed, 0})
 
-	rows, err := st.DailyDurations(ctx, store.Filter{Since: day.AddDate(0, 0, -1)})
+	rows, err := st.DailyDurations(ctx, store.Filter{Since: day.AddDate(0, 0, -1)}, "day")
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := map[string]store.DailyDuration{}
 	for _, r := range rows {
-		got[r.Job+" "+r.Day.UTC().Format("01-02")] = r
+		got[r.Job+" "+r.Bucket.UTC().Format("01-02")] = r
 	}
 	d0, d1 := day.Format("01-02"), day.AddDate(0, 0, 1).Format("01-02")
 	for key, want := range map[string]struct {
@@ -188,6 +188,53 @@ func TestDailyDurationsPerWorkflowAndJob(t *testing.T) {
 	}
 	if len(rows) != 5 {
 		t.Errorf("rows = %+v, want 5", rows)
+	}
+}
+
+func TestDailyDurationsWeekBucketMediansOverTheWholeWeek(t *testing.T) {
+	st := storetest.Open(t, 180*24*time.Hour)
+	ctx := context.Background()
+	monday := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -14)
+	for monday.Weekday() != time.Monday {
+		monday = monday.AddDate(0, 0, -1)
+	}
+	wednesday := monday.AddDate(0, 0, 2)
+
+	run := func(id int64, start time.Time, secs int) {
+		t.Helper()
+		end := start.Add(time.Duration(secs) * time.Second)
+		err := st.InTx(ctx, func(tx pgx.Tx) error {
+			if _, err := store.UpsertRun(ctx, tx, "acme/app", &github.Run{ID: id, RunAttempt: 1, Name: "CI", Status: "completed", Conclusion: "success"}); err != nil {
+				return err
+			}
+			return store.UpsertJob(ctx, tx, "acme/app", &github.Job{
+				ID: id, RunID: id, RunAttempt: 1, WorkflowName: "CI", Name: "build",
+				Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end,
+			})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(1, monday.Add(9*time.Hour), 10)
+	run(2, monday.Add(10*time.Hour), 20)
+	run(3, wednesday.Add(9*time.Hour), 1000)
+
+	rows, err := st.DailyDurations(ctx, store.Filter{Since: monday.AddDate(0, 0, -7)}, "week")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, r := range rows {
+		if r.Job == "" && r.Bucket.Equal(monday) {
+			found = true
+			if r.Median != 20 || r.Runs != 3 {
+				t.Errorf("week bucket = %+v, want median 20 over 3 runs (raw [10,20,1000], not the average of per-day medians)", r)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no week bucket starting %s in %+v", monday, rows)
 	}
 }
 

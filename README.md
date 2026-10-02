@@ -25,7 +25,7 @@ Self-hosted server and web UI that joins GitHub Actions webhook timings with [ga
 - **Recent jobs**, filtered by repository and days like the other reports, link to a job view with run, job and step timings from GitHub, a CPU and memory chart from gauger, and runner usage per step.
 - **Slow steps.** p50 and p95 duration per step name.
 - **Regressions.** Each day's median step duration per branch against the median of the 14 days before it.
-- **Daily timing.** Median duration per UTC day for each workflow and each job, one column per day. A workflow run lasts from its first job's start to its last job's end.
+- **Daily timing.** Median duration per bucket, day, week or month, for each workflow and each job, one column per bucket, with a bar chart above the tables. At most 60 buckets; weeks start Monday UTC. A workflow run lasts from its first job's start to its last job's end.
 - **Right-sizing.** Peak memory against `MemTotal` and CPU against `nproc` per step. These are runner-level values during the step's time window, not the step's own usage.
 - **Spend.** Job minutes, rounded up per job, times the rate for the runner label. Standard runners in public repositories and self-hosted runners are free. Rates default to GitHub's published prices; add larger runners with `GAUGER_RUNNER_RATES`.
 
