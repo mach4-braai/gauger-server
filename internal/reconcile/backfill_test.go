@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mach4-braai/gauger-server/internal/github"
+	"github.com/mach4-braai/gauger-server/internal/github/githubtest"
 	"github.com/mach4-braai/gauger-server/internal/store"
 )
 
@@ -97,5 +98,65 @@ func TestBackfillTaskRunsThroughProcessDue(t *testing.T) {
 	st.Pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE kind = 'run' AND key = '501:1'`).Scan(&inProgressQueued)
 	if inProgressQueued != 0 {
 		t.Fatalf("run task for in-progress run = %d, want 0", inProgressQueued)
+	}
+}
+
+func TestBackfillSplitsWindowOverGitHubRunCap(t *testing.T) {
+	r, gh, _ := setup(t)
+	ctx := context.Background()
+	repo := "acme/busy"
+	today := time.Now().UTC()
+	yesterday := today.AddDate(0, 0, -1)
+
+	seed := func(day time.Time, startID int64, n int) {
+		for i := range n {
+			id := startID + int64(i)
+			created := day
+			gh.Runs[fmt.Sprintf("%d:1", id)] = &github.Run{
+				ID: id, RunAttempt: 1, Status: "completed", CreatedAt: &created,
+				Repository: github.Repository{FullName: repo},
+			}
+		}
+	}
+	seed(yesterday, 1, 520)
+	seed(today, 10000, 520)
+
+	runs, err := r.listRunsInRange(ctx, githubtest.Installation, repo, yesterday, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1040 {
+		t.Fatalf("runs = %d, want 1040 (splitting must not drop any)", len(runs))
+	}
+	// One short-circuited whole-range probe (total over the cap, so it
+	// stops after page 1) plus a full paginated listing per day once split.
+	if calls := gh.CallCount("/repos/acme/busy/actions/runs"); calls < 3 {
+		t.Fatalf("list calls = %d, want at least 3 (probe + per-day split)", calls)
+	}
+}
+
+func TestBackfillSingleDayOverCapLogsAndContinues(t *testing.T) {
+	r, gh, _ := setup(t)
+	ctx := context.Background()
+	repo := "acme/busiest"
+	today := time.Now().UTC()
+	for i := range 1100 {
+		id := int64(20000 + i)
+		created := today
+		gh.Runs[fmt.Sprintf("%d:1", id)] = &github.Run{
+			ID: id, RunAttempt: 1, Status: "completed", CreatedAt: &created,
+			Repository: github.Repository{FullName: repo},
+		}
+	}
+
+	runs, err := r.listRunsInRange(ctx, githubtest.Installation, repo, today, today)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A single day over the cap can't be split further, so listRunsInRange
+	// logs a warning and uses whatever ListRuns already fetched: one page,
+	// since ListRuns itself stops once total_count is over the cap.
+	if len(runs) != 100 {
+		t.Fatalf("runs = %d, want 100 (one page, logged and used as-is)", len(runs))
 	}
 }

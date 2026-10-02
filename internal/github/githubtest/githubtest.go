@@ -168,8 +168,11 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			perPage = 100
 		}
 		runs := []*github.Run{}
-		if start := (page - 1) * perPage; start < len(matched) {
-			end := min(start+perPage, len(matched))
+		// Real GitHub never returns more than 1,000 runs for one query,
+		// however large total_count is.
+		capped := min(len(matched), 1000)
+		if start := (page - 1) * perPage; start < capped {
+			end := min(start+perPage, capped)
 			runs = matched[start:end]
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"total_count": len(matched), "workflow_runs": runs})
