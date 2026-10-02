@@ -36,6 +36,26 @@ const workflowPath = `
 			ORDER BY repository, workflow_name, coalesce(run_started_at, created_at) DESC
 		)`
 
+// jobWorkflows extends workflowPath with jw, which gives every job its
+// workflow file and a label for it. GitHub names each run of a dynamic
+// workflow after its trigger, so the file, not the name, identifies it.
+const jobWorkflows = workflowPath + `,
+		wf AS (
+			SELECT DISTINCT ON (repository, path) repository, path,
+				CASE WHEN path LIKE 'dynamic/%' THEN substr(path, 9) ELSE workflow_name END AS name
+			FROM runs
+			WHERE path IS NOT NULL AND workflow_name IS NOT NULL
+			ORDER BY repository, path, coalesce(run_started_at, created_at) DESC
+		),
+		jw AS (
+			SELECT j.id, coalesce(r.path, wp.path, '') AS path,
+				coalesce(wf.name, j.workflow_name, r.workflow_name, '') AS workflow
+			FROM jobs j
+			LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
+			LEFT JOIN workflow_path wp ON wp.repository = j.repository AND wp.workflow = coalesce(j.workflow_name, r.workflow_name)
+			LEFT JOIN wf ON wf.repository = j.repository AND wf.path = coalesce(r.path, wp.path)
+		)`
+
 type JobRow struct {
 	ID           int64
 	Repository   string
@@ -384,47 +404,47 @@ type DailyDuration struct {
 // is the latest successful job in the window, zero for workflow rows.
 func (s *Store) DailyDurations(ctx context.Context, f Filter, bucket, workflow, job string) ([]DailyDuration, error) {
 	rows, err := s.Pool.Query(ctx, `
-		WITH j AS (
-			SELECT j.repository, coalesce(j.workflow_name, r.workflow_name, '') AS workflow, coalesce(j.name, '') AS job,
+		WITH`+jobWorkflows+`,
+		j AS (
+			SELECT j.repository, jw.workflow, jw.path, coalesce(j.name, '') AS job,
 				j.id, j.run_id, j.run_attempt, coalesce(r.status, '') AS run_status, coalesce(r.conclusion, '') AS run_conclusion,
 				coalesce(j.conclusion, '') AS conclusion,
 				j.started_at, j.completed_at
 			FROM jobs j
+			JOIN jw ON jw.id = j.id
 			LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
 			WHERE j.status = 'completed' AND j.started_at >= $1 AND j.completed_at >= j.started_at
 			  AND ($2 = '' OR j.repository = $2)
 		),
 		run AS (
-			SELECT repository, workflow, min(started_at) FILTER (WHERE conclusion = 'success') AS started_at,
+			SELECT repository, workflow, path, min(started_at) FILTER (WHERE conclusion = 'success') AS started_at,
 				max(completed_at) FILTER (WHERE conclusion = 'success') AS completed_at
 			FROM j
-			GROUP BY repository, workflow, run_id, run_attempt
+			GROUP BY repository, workflow, path, run_id, run_attempt
 			HAVING bool_and(run_status = 'completed' AND run_conclusion = 'success') AND bool_or(conclusion = 'success')
 		),
 		latest_job AS (
-			SELECT DISTINCT ON (repository, workflow, job) repository, workflow, job, id
+			SELECT DISTINCT ON (repository, path, workflow, job) repository, path, workflow, job, id
 			FROM j
 			WHERE conclusion = 'success'
-			ORDER BY repository, workflow, job, started_at DESC
-		),`+workflowPath+`
-		SELECT run.repository, run.workflow, '', date_trunc($3, run.started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
-			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM run.completed_at - run.started_at)), count(*),
-			coalesce(wp.path, ''), 0
+			ORDER BY repository, path, workflow, job, started_at DESC
+		)
+		SELECT repository, workflow, '', date_trunc($3, started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - started_at)), count(*),
+			path, 0
 		FROM run
-		LEFT JOIN workflow_path wp ON wp.repository = run.repository AND wp.workflow = run.workflow
-		WHERE $4 = '' OR run.workflow = $4
-		GROUP BY 1, 2, 3, 4, wp.path
+		WHERE $4 = '' OR workflow = $4
+		GROUP BY 1, 2, 3, 4, 7
 		UNION ALL
 		SELECT j.repository, j.workflow, j.job, date_trunc($3, j.started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
 			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM j.completed_at - j.started_at)), count(*),
-			coalesce(wp.path, ''), coalesce(lj.id, 0)
+			j.path, coalesce(lj.id, 0)
 		FROM j
-		LEFT JOIN workflow_path wp ON wp.repository = j.repository AND wp.workflow = j.workflow
-		LEFT JOIN latest_job lj ON lj.repository = j.repository AND lj.workflow = j.workflow AND lj.job = j.job
+		LEFT JOIN latest_job lj ON lj.repository = j.repository AND lj.path = j.path AND lj.workflow = j.workflow AND lj.job = j.job
 		WHERE j.conclusion = 'success'
 		  AND ($4 = '' OR j.workflow = $4) AND ($5 = '' OR j.job = $5)
-		GROUP BY 1, 2, 3, 4, wp.path, lj.id
-		ORDER BY 1, 2, 3, 4`, f.Since, f.Repository, bucket, workflow, job)
+		GROUP BY 1, 2, 3, 4, 7, lj.id
+		ORDER BY 1, 2, 7, 3, 4`, f.Since, f.Repository, bucket, workflow, job)
 	if err != nil {
 		return nil, err
 	}
@@ -439,14 +459,15 @@ func (s *Store) Repositories(ctx context.Context) ([]string, error) {
 	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
-// Workflows returns the distinct non-empty workflow names for a
+// Workflows returns the distinct non-empty workflow labels for a
 // repository (every repository's when repo is empty).
 func (s *Store) Workflows(ctx context.Context, repo string) ([]string, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT DISTINCT coalesce(j.workflow_name, r.workflow_name, '') AS workflow
+		WITH`+jobWorkflows+`
+		SELECT DISTINCT jw.workflow
 		FROM jobs j
-		LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
-		WHERE ($1 = '' OR j.repository = $1) AND coalesce(j.workflow_name, r.workflow_name, '') != ''
+		JOIN jw ON jw.id = j.id
+		WHERE ($1 = '' OR j.repository = $1) AND jw.workflow != ''
 		ORDER BY 1`, repo)
 	if err != nil {
 		return nil, err
@@ -454,14 +475,15 @@ func (s *Store) Workflows(ctx context.Context, repo string) ([]string, error) {
 	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
-// Jobs returns the distinct non-empty job names of one workflow in a
+// Jobs returns the distinct non-empty job names of one workflow label in a
 // repository (every repository's when repo is empty).
 func (s *Store) Jobs(ctx context.Context, repo, workflow string) ([]string, error) {
 	rows, err := s.Pool.Query(ctx, `
+		WITH`+jobWorkflows+`
 		SELECT DISTINCT coalesce(j.name, '') AS job
 		FROM jobs j
-		LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
-		WHERE ($1 = '' OR j.repository = $1) AND coalesce(j.workflow_name, r.workflow_name, '') = $2
+		JOIN jw ON jw.id = j.id
+		WHERE ($1 = '' OR j.repository = $1) AND jw.workflow = $2
 		  AND coalesce(j.name, '') != ''
 		ORDER BY 1`, repo, workflow)
 	if err != nil {
