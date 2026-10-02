@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"hash/fnv"
 	"html/template"
 	"math"
 	"net/http"
@@ -199,10 +198,10 @@ var dailyPalette = []string{
 	"#cf222e", "#116329", "#57606a", "#6639ba", "#0550ae",
 }
 
-func dailySeriesColor(label string) string {
-	h := fnv.New32a()
-	h.Write([]byte(label))
-	return dailyPalette[h.Sum32()%uint32(len(dailyPalette))]
+// dailySeriesColor picks a palette colour by the series' position among
+// the chart's ordered series, wrapping past the palette's length.
+func dailySeriesColor(i int) string {
+	return dailyPalette[i%len(dailyPalette)]
 }
 
 // niceStep picks a round axis step (1/2/5 × a power of ten) that divides
@@ -278,7 +277,7 @@ func dailyChart(labels []string, rows []dailyRow, seriesLabel func(dailyRow) str
 	colors := make([]string, len(rows))
 	for j, row := range rows {
 		seriesLabels[j] = seriesLabel(row)
-		colors[j] = dailySeriesColor(seriesLabels[j])
+		colors[j] = dailySeriesColor(j)
 	}
 
 	var b strings.Builder
