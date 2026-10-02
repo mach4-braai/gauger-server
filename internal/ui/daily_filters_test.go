@@ -66,7 +66,6 @@ func TestDailyFiltersByWorkflowAndJob(t *testing.T) {
 		return regexp.MustCompile(`<option selected>([^<]*)</option>`).FindAllStringSubmatch(block, -1)
 	}
 
-	// Selecting a workflow switches the chart and the Jobs table to its jobs.
 	page := get("/daily?repo=acme/app&days=1&workflow=CI")
 	if got := selected(page, "workflow"); len(got) != 1 || got[0][1] != "CI" {
 		t.Fatalf("workflow select = %v, want [CI] selected", got)
@@ -82,8 +81,6 @@ func TestDailyFiltersByWorkflowAndJob(t *testing.T) {
 		t.Errorf("Jobs table still lists Deploy's job after filtering to CI:\n%s", page)
 	}
 
-	// Selecting a job on top of the workflow narrows the chart to one bar
-	// whose height matches that job's row in the Jobs table.
 	page = get("/daily?repo=acme/app&days=1&workflow=CI&job=a")
 	items = legendItems(page)
 	if len(items) != 1 || items[0][1] != "a" {
@@ -93,8 +90,6 @@ func TestDailyFiltersByWorkflowAndJob(t *testing.T) {
 		t.Errorf("chart bar for job a missing its 1m40s/1-run title:\n%s", page)
 	}
 
-	// Changing to a repository without that workflow clears both filters
-	// instead of silently filtering by a workflow or job it doesn't have.
 	page = get("/daily?repo=other/repo&days=1&workflow=CI&job=a")
 	if got := selected(page, "workflow"); len(got) != 0 {
 		t.Fatalf("workflow select = %v, want none selected (CI does not exist on other/repo)", got)
