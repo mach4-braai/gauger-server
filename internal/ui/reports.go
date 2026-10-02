@@ -326,6 +326,7 @@ const (
 	dailyPadL, dailyPadR       = 44.0, 10.0
 	dailyPadT, dailyPadB       = 10.0, 54.0
 	dailyGroupPad, dailyBarGap = 4.0, 2.0
+	dailyMinBarW               = 3.0
 )
 
 var dailyPalette = []string{
@@ -398,13 +399,12 @@ func dailyChart(labels []string, rows []dailyRow, seriesLabel func(dailyRow) str
 	step := niceStep(maxVal/scale, 4)
 	axisMax := step * math.Ceil(maxVal/scale/step)
 
-	usableW := dailyChartW - dailyPadL - dailyPadR
+	n := float64(len(rows))
+	minGroupW := 2*dailyGroupPad + n*dailyMinBarW + (n-1)*dailyBarGap
+	groupW := max((dailyChartW-dailyPadL-dailyPadR)/float64(len(labels)), minGroupW)
+	chartW := dailyPadL + dailyPadR + groupW*float64(len(labels))
 	usableH := dailyChartH - dailyPadT - dailyPadB
-	groupW := usableW / float64(len(labels))
-	barW := (groupW - 2*dailyGroupPad - float64(len(rows)-1)*dailyBarGap) / float64(len(rows))
-	if barW < 1 {
-		barW = 1
-	}
+	barW := (groupW - 2*dailyGroupPad - (n-1)*dailyBarGap) / n
 	x := func(i int) float64 { return dailyPadL + float64(i)*groupW }
 	y := func(v float64) float64 { return dailyPadT + usableH - v/(axisMax*scale)*usableH }
 
@@ -415,12 +415,16 @@ func dailyChart(labels []string, rows []dailyRow, seriesLabel func(dailyRow) str
 		colors[j] = dailySeriesColor(j)
 	}
 
+	width := "100%"
+	if chartW > dailyChartW {
+		width = fmt.Sprintf("%.0f", chartW)
+	}
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %.0f %.0f" width="100%%" role="img">`, dailyChartW, dailyChartH)
+	fmt.Fprintf(&b, `<div style="overflow-x:auto"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %.1f %.0f" width="%s" role="img">`, chartW, dailyChartH, width)
 	for v := 0.0; v <= axisMax+step*0.001; v += step {
 		gy := y(v * scale)
 		fmt.Fprintf(&b, `<line x1="%.0f" x2="%.0f" y1="%.1f" y2="%.1f" stroke="#d0d7de"/><text x="2" y="%.1f" font-size="10" fill="#656d76">%s%s</text>`,
-			dailyPadL, dailyChartW-dailyPadR, gy, gy, gy+3, fmtTick(v), unit)
+			dailyPadL, chartW-dailyPadR, gy, gy, gy+3, fmtTick(v), unit)
 	}
 	for i, l := range labels {
 		lx := x(i) + groupW/2
@@ -443,7 +447,7 @@ func dailyChart(labels []string, rows []dailyRow, seriesLabel func(dailyRow) str
 				c.Runs, plural(c.Runs))
 		}
 	}
-	b.WriteString(`</svg><div class="legend">`)
+	b.WriteString(`</svg></div><div class="legend">`)
 	for j := range rows {
 		fmt.Fprintf(&b, `<span class="legend-item"><span class="swatch" style="background:%s"></span>%s</span>`, colors[j], template.HTMLEscapeString(seriesLabels[j]))
 	}
