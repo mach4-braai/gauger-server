@@ -332,7 +332,9 @@ type DailyDuration struct {
 // first successful job's start to its last successful job's end. bucket
 // is "day", "week" or "month"; weeks start Monday UTC. The median is
 // taken over every run (or job) in the bucket, not over daily medians.
-func (s *Store) DailyDurations(ctx context.Context, f Filter, bucket string) ([]DailyDuration, error) {
+// workflow and job narrow the result (empty matches everything); they
+// never drop a job from a run's own start/end/success computation.
+func (s *Store) DailyDurations(ctx context.Context, f Filter, bucket, workflow, job string) ([]DailyDuration, error) {
 	rows, err := s.Pool.Query(ctx, `
 		WITH j AS (
 			SELECT j.repository, coalesce(j.workflow_name, r.workflow_name, '') AS workflow, coalesce(j.name, '') AS job,
@@ -354,14 +356,16 @@ func (s *Store) DailyDurations(ctx context.Context, f Filter, bucket string) ([]
 		SELECT repository, workflow, '', date_trunc($3, started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
 			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - started_at)), count(*)
 		FROM run
+		WHERE $4 = '' OR workflow = $4
 		GROUP BY 1, 2, 3, 4
 		UNION ALL
 		SELECT repository, workflow, job, date_trunc($3, started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
 			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - started_at)), count(*)
 		FROM j
 		WHERE conclusion = 'success'
+		  AND ($4 = '' OR workflow = $4) AND ($5 = '' OR job = $5)
 		GROUP BY 1, 2, 3, 4
-		ORDER BY 1, 2, 3, 4`, f.Since, f.Repository, bucket)
+		ORDER BY 1, 2, 3, 4`, f.Since, f.Repository, bucket, workflow, job)
 	if err != nil {
 		return nil, err
 	}
@@ -370,6 +374,37 @@ func (s *Store) DailyDurations(ctx context.Context, f Filter, bucket string) ([]
 
 func (s *Store) Repositories(ctx context.Context) ([]string, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT DISTINCT repository FROM jobs ORDER BY 1`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+// Workflows returns the distinct non-empty workflow names for a
+// repository (every repository's when repo is empty).
+func (s *Store) Workflows(ctx context.Context, repo string) ([]string, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT DISTINCT coalesce(j.workflow_name, r.workflow_name, '') AS workflow
+		FROM jobs j
+		LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
+		WHERE ($1 = '' OR j.repository = $1) AND coalesce(j.workflow_name, r.workflow_name, '') != ''
+		ORDER BY 1`, repo)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+// Jobs returns the distinct non-empty job names of one workflow in a
+// repository (every repository's when repo is empty).
+func (s *Store) Jobs(ctx context.Context, repo, workflow string) ([]string, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT DISTINCT coalesce(j.name, '') AS job
+		FROM jobs j
+		LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
+		WHERE ($1 = '' OR j.repository = $1) AND coalesce(j.workflow_name, r.workflow_name, '') = $2
+		  AND coalesce(j.name, '') != ''
+		ORDER BY 1`, repo, workflow)
 	if err != nil {
 		return nil, err
 	}

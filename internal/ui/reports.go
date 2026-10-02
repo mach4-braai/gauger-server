@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -203,7 +204,29 @@ func (u *UI) daily(w http.ResponseWriter, r *http.Request) {
 	bucketParam := bucketName(r)
 	starts := bucketStarts(bucketParam, form.Days, time.Now().UTC())
 	f.Since = starts[0]
-	durations, err := u.Store.DailyDurations(r.Context(), f, bucketParam)
+
+	workflowOptions, err := u.Store.Workflows(r.Context(), form.Repo)
+	if err != nil {
+		u.fail(w, err)
+		return
+	}
+	workflowFilter := r.URL.Query().Get("workflow")
+	if !slices.Contains(workflowOptions, workflowFilter) {
+		workflowFilter = ""
+	}
+	var jobOptions []string
+	if workflowFilter != "" {
+		if jobOptions, err = u.Store.Jobs(r.Context(), form.Repo, workflowFilter); err != nil {
+			u.fail(w, err)
+			return
+		}
+	}
+	jobFilter := r.URL.Query().Get("job")
+	if !slices.Contains(jobOptions, jobFilter) {
+		jobFilter = ""
+	}
+
+	durations, err := u.Store.DailyDurations(r.Context(), f, bucketParam, workflowFilter, jobFilter)
 	if err != nil {
 		u.fail(w, err)
 		return
@@ -231,9 +254,16 @@ func (u *UI) daily(w http.ResponseWriter, r *http.Request) {
 	for i, t := range starts {
 		labels[i] = dailyBuckets[bucketParam].label(t)
 	}
+
+	chartRows, chartLabel := workflows, workflowLabel(form.Repo == "")
+	if workflowFilter != "" {
+		chartRows, chartLabel = jobs, jobLabel(form.Repo == "")
+	}
 	u.render(w, "daily", map[string]any{
 		"Filter": form, "Labels": labels, "Bucket": bucketParam, "Workflows": workflows, "Jobs": jobs,
-		"Chart": dailyChart(labels, workflows, workflowLabel(form.Repo == "")),
+		"WorkflowOptions": workflowOptions, "WorkflowFilter": workflowFilter,
+		"JobOptions": jobOptions, "JobFilter": jobFilter,
+		"Chart": dailyChart(labels, chartRows, chartLabel),
 	})
 }
 
@@ -243,6 +273,15 @@ func workflowLabel(allRepos bool) func(dailyRow) string {
 			return row.Repository + " · " + row.Workflow
 		}
 		return row.Workflow
+	}
+}
+
+func jobLabel(allRepos bool) func(dailyRow) string {
+	return func(row dailyRow) string {
+		if allRepos {
+			return row.Repository + " · " + row.Job
+		}
+		return row.Job
 	}
 }
 
