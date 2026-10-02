@@ -130,17 +130,21 @@ func TestDailyDurationsPerWorkflowAndJob(t *testing.T) {
 		name, status, conclusion string
 		from, to                 int
 	}
-	run := func(id int64, start time.Time, status string, jobs ...job) {
+	const untimed = -1
+	run := func(id int64, start time.Time, status, conclusion string, jobs ...job) {
 		t.Helper()
 		err := st.InTx(ctx, func(tx pgx.Tx) error {
-			if _, err := store.UpsertRun(ctx, tx, "acme/app", &github.Run{ID: id, RunAttempt: 1, Name: "CI", Status: status}); err != nil {
+			if _, err := store.UpsertRun(ctx, tx, "acme/app", &github.Run{ID: id, RunAttempt: 1, Name: "CI", Status: status, Conclusion: conclusion}); err != nil {
 				return err
 			}
 			for i, j := range jobs {
 				gj := &github.Job{ID: id*10 + int64(i), RunID: id, RunAttempt: 1, WorkflowName: "CI", Name: j.name,
-					Status: j.status, Conclusion: j.conclusion, StartedAt: at(start, j.from)}
-				if j.status == "completed" {
-					gj.CompletedAt = at(start, j.to)
+					Status: j.status, Conclusion: j.conclusion}
+				if j.from != untimed {
+					gj.StartedAt = at(start, j.from)
+					if j.status == "completed" {
+						gj.CompletedAt = at(start, j.to)
+					}
 				}
 				if err := store.UpsertJob(ctx, tx, "acme/app", gj); err != nil {
 					return err
@@ -152,11 +156,12 @@ func TestDailyDurationsPerWorkflowAndJob(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	run(1, day, "completed", job{"a", "completed", "success", 0, 120}, job{"b", "completed", "success", 60, 300})
-	run(2, day, "completed", job{"a", "completed", "success", 0, 240}, job{"b", "completed", "skipped", 0, 0})
-	run(3, day, "completed", job{"a", "completed", "success", 0, 60}, job{"b", "completed", "failure", 0, 500})
-	run(4, day, "in_progress", job{"a", "completed", "success", 0, 30}, job{"b", "in_progress", "", 0, 0})
-	run(5, day.AddDate(0, 0, 1), "completed", job{"a", "completed", "success", 0, 100})
+	run(1, day, "completed", "success", job{"a", "completed", "success", 0, 120}, job{"b", "completed", "success", 60, 300})
+	run(2, day, "completed", "success", job{"a", "completed", "success", 0, 240}, job{"b", "completed", "skipped", 0, 0})
+	run(3, day, "completed", "failure", job{"a", "completed", "success", 0, 60}, job{"b", "completed", "failure", 0, 500})
+	run(4, day, "in_progress", "", job{"a", "completed", "success", 0, 30}, job{"b", "in_progress", "", 0, 0})
+	run(5, day.AddDate(0, 0, 1), "completed", "success", job{"a", "completed", "success", 0, 100})
+	run(6, day, "completed", "failure", job{"a", "completed", "success", 0, 80}, job{"b", "completed", "failure", untimed, 0})
 
 	rows, err := st.DailyDurations(ctx, store.Filter{Since: day.AddDate(0, 0, -1)})
 	if err != nil {
@@ -173,7 +178,7 @@ func TestDailyDurationsPerWorkflowAndJob(t *testing.T) {
 	}{
 		" " + d0:  {270, 2},
 		" " + d1:  {100, 1},
-		"a " + d0: {90, 4},
+		"a " + d0: {80, 5},
 		"b " + d0: {240, 1},
 		"a " + d1: {100, 1},
 	} {

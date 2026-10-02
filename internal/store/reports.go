@@ -327,14 +327,15 @@ type DailyDuration struct {
 	Runs       int64
 }
 
-// DailyDurations returns per-day medians for successful jobs and for
-// completed runs whose jobs all succeeded or were skipped. A run lasts from
-// its first job's start to its last job's end.
+// DailyDurations returns per-day medians for successful jobs and for runs
+// GitHub reports as completed with success. A run lasts from its first
+// successful job's start to its last successful job's end.
 func (s *Store) DailyDurations(ctx context.Context, f Filter) ([]DailyDuration, error) {
 	rows, err := s.Pool.Query(ctx, `
 		WITH j AS (
 			SELECT j.repository, coalesce(j.workflow_name, r.workflow_name, '') AS workflow, coalesce(j.name, '') AS job,
-				j.run_id, j.run_attempt, coalesce(r.status, '') AS run_status, coalesce(j.conclusion, '') AS conclusion,
+				j.run_id, j.run_attempt, coalesce(r.status, '') AS run_status, coalesce(r.conclusion, '') AS run_conclusion,
+				coalesce(j.conclusion, '') AS conclusion,
 				j.started_at, j.completed_at
 			FROM jobs j
 			LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
@@ -346,8 +347,7 @@ func (s *Store) DailyDurations(ctx context.Context, f Filter) ([]DailyDuration, 
 				max(completed_at) FILTER (WHERE conclusion = 'success') AS completed_at
 			FROM j
 			GROUP BY repository, workflow, run_id, run_attempt
-			HAVING bool_and(run_status = 'completed') AND bool_and(conclusion IN ('success', 'skipped'))
-			   AND bool_or(conclusion = 'success')
+			HAVING bool_and(run_status = 'completed' AND run_conclusion = 'success') AND bool_or(conclusion = 'success')
 		)
 		SELECT repository, workflow, '', date_trunc('day', started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
 			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - started_at)), count(*)
