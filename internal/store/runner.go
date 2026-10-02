@@ -44,16 +44,16 @@ func scheduleFollowups(ctx context.Context, tx pgx.Tx, jobID int64) error {
 }
 
 // QueueArtifactSearches adds an artifact search for each completed job of
-// runID in jobIDs that gauger never said done for and that has no ingested
-// artifact.
-func (s *Store) QueueArtifactSearches(ctx context.Context, runID int64, jobIDs []int64) error {
+// the run attempt that gauger never said done for, that has no ingested
+// artifact and whose artifact has not expired yet.
+func (s *Store) QueueArtifactSearches(ctx context.Context, runID int64, attempt int) error {
 	_, err := s.Pool.Exec(ctx, `
 		INSERT INTO tasks (kind, key, repository, next_at, expires_at)
 		SELECT $1, id::text, repository, greatest(now(), completed_at + $4 * interval '1 second'), completed_at + interval '7 days'
 		FROM jobs
-		WHERE id = ANY($2) AND run_id = $3 AND status = 'completed' AND completed_at IS NOT NULL
+		WHERE run_id = $2 AND run_attempt = $3 AND status = 'completed' AND completed_at > now() - interval '7 days'
 		  AND runner_done_at IS NULL AND artifact_ingested_at IS NULL
-		ON CONFLICT DO NOTHING`, KindArtifact, jobIDs, runID, int(ArtifactGrace.Seconds()))
+		ON CONFLICT DO NOTHING`, KindArtifact, runID, attempt, int(ArtifactGrace.Seconds()))
 	return err
 }
 
