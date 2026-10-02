@@ -1,9 +1,12 @@
 package ui
 
 import (
+	"fmt"
+	"net/http/httptest"
 	"regexp"
 	"strconv"
 	"testing"
+	"time"
 )
 
 func TestDailyChartBarHeightsMatchMedians(t *testing.T) {
@@ -52,5 +55,56 @@ func TestDailyChartWithAllReposPrefixesLabel(t *testing.T) {
 func TestDailyChartEmptyWithoutRuns(t *testing.T) {
 	if out := dailyChart([]string{"10-01"}, nil, workflowLabel(false)); out != "" {
 		t.Errorf("want no chart with no rows, got %q", out)
+	}
+}
+
+func TestBucketNameFallsBackToDay(t *testing.T) {
+	for _, v := range []string{"", "fortnight", "DAY", "Week"} {
+		r := httptest.NewRequest("GET", "/daily?bucket="+v, nil)
+		if got := bucketName(r); got != "day" {
+			t.Errorf("bucketName(%q) = %q, want %q", v, got, "day")
+		}
+	}
+	for _, v := range []string{"day", "week", "month"} {
+		r := httptest.NewRequest("GET", "/daily?bucket="+v, nil)
+		if got := bucketName(r); got != v {
+			t.Errorf("bucketName(%q) = %q, want %q", v, got, v)
+		}
+	}
+}
+
+func TestBucketStartsCapsAtSixtyBuckets(t *testing.T) {
+	now := time.Date(2026, 10, 2, 15, 0, 0, 0, time.UTC)
+
+	month := bucketStarts("month", 365, now)
+	if len(month) > 13 {
+		t.Errorf("month buckets for days=365 = %d, want at most 13", len(month))
+	}
+	if want := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC); len(month) == 0 || !month[len(month)-1].Equal(want) {
+		t.Errorf("last month bucket = %v, want %v", month, want)
+	}
+
+	week := bucketStarts("week", 3650, now)
+	if len(week) != maxDailyBuckets {
+		t.Errorf("week buckets for days=3650 = %d, want cap %d", len(week), maxDailyBuckets)
+	}
+	for _, s := range week {
+		if s.Weekday() != time.Monday {
+			t.Errorf("week bucket %v is not a Monday", s)
+		}
+	}
+}
+
+func TestBucketLabels(t *testing.T) {
+	if got := dailyBuckets["day"].label(time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)); got != "10-02" {
+		t.Errorf("day label = %q, want %q", got, "10-02")
+	}
+	monday := time.Date(2025, 9, 29, 0, 0, 0, 0, time.UTC)
+	_, wantWeek := monday.ISOWeek()
+	if got, want := dailyBuckets["week"].label(monday), fmt.Sprintf("W%02d", wantWeek); got != want {
+		t.Errorf("week label = %q, want %q", got, want)
+	}
+	if got := dailyBuckets["month"].label(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)); got != "2026-10" {
+		t.Errorf("month label = %q, want %q", got, "2026-10")
 	}
 }
