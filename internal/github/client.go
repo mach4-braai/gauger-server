@@ -330,6 +330,32 @@ func (c *Client) RepoInstallation(ctx context.Context, repo string) (int64, erro
 	return out.ID, nil
 }
 
+// ListRuns returns the workflow runs created in [from, to], GitHub's
+// inclusive date range. GitHub caps a single created query at 1,000 runs, so
+// callers split a long backfill into narrower date ranges.
+func (c *Client) ListRuns(ctx context.Context, inst int64, repo string, from, to time.Time) ([]Run, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return nil, err
+	}
+	created := from.UTC().Format("2006-01-02") + ".." + to.UTC().Format("2006-01-02")
+	var runs []Run
+	for page := 1; ; page++ {
+		var out struct {
+			TotalCount   int   `json:"total_count"`
+			WorkflowRuns []Run `json:"workflow_runs"`
+		}
+		path := fmt.Sprintf("/repos/%s/%s/actions/runs?created=%s&per_page=100&page=%d", owner, name, url.QueryEscape(created), page)
+		if err := c.do(ctx, inst, http.MethodGet, path, nil, &out); err != nil {
+			return nil, err
+		}
+		runs = append(runs, out.WorkflowRuns...)
+		if len(out.WorkflowRuns) < 100 || len(runs) >= out.TotalCount {
+			return runs, nil
+		}
+	}
+}
+
 func (c *Client) GetJob(ctx context.Context, inst int64, repo string, id int64) (*Job, error) {
 	owner, name, err := splitRepo(repo)
 	if err != nil {

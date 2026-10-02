@@ -9,24 +9,32 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mach4-braai/gauger-server/internal/github"
+	"github.com/mach4-braai/gauger-server/internal/reconcile"
 	"github.com/mach4-braai/gauger-server/internal/store"
 )
 
 const stateCookie = "gauger_setup_state"
+
+// DefaultBackfillDays is how far back a backfill reaches when the form
+// leaves Days empty.
+const DefaultBackfillDays = 90
 
 var orgName = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$`)
 
 type setupPage struct {
 	App         *github.Credentials
 	DefaultName string
+	DefaultDays int
 	Error       string
 }
 
 func (u *UI) setup(w http.ResponseWriter, r *http.Request) {
-	page := setupPage{DefaultName: "gauger-" + strings.SplitN(u.DNSName, ".", 2)[0]}
+	page := setupPage{DefaultName: "gauger-" + strings.SplitN(u.DNSName, ".", 2)[0], DefaultDays: DefaultBackfillDays}
 	creds, err := u.Creds.Credentials(r.Context())
 	switch {
 	case err == nil:
@@ -98,5 +106,42 @@ func (u *UI) setupCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("GitHub App created", "app_id", conv.ID, "slug", conv.Slug)
 	http.SetCookie(w, &http.Cookie{Name: stateCookie, Path: "/setup", MaxAge: -1})
+	http.Redirect(w, r, "/setup", http.StatusSeeOther)
+}
+
+// setupBackfill queues a backfill task for every repository with an
+// installation, reaching back Days days (DefaultBackfillDays if empty).
+func (u *UI) setupBackfill(w http.ResponseWriter, r *http.Request) {
+	if _, err := u.Creds.Credentials(r.Context()); err != nil {
+		http.Error(w, "configure a GitHub App first", http.StatusConflict)
+		return
+	}
+	days := DefaultBackfillDays
+	if v := strings.TrimSpace(r.FormValue("days")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			http.Error(w, "days must be a positive integer", http.StatusBadRequest)
+			return
+		}
+		days = n
+	}
+	repos, err := u.Store.InstalledRepositories(r.Context())
+	if err != nil {
+		u.fail(w, err)
+		return
+	}
+	since := time.Now().UTC().AddDate(0, 0, -days)
+	now := time.Now()
+	expires := now.Add(reconcile.TaskLifetime)
+	for _, repo := range repos {
+		err := store.EnqueueTask(r.Context(), u.Store.Pool, store.KindBackfill, store.BackfillKey(repo, since), repo, now, expires)
+		if err != nil {
+			u.fail(w, err)
+			return
+		}
+	}
+	if u.Wake != nil {
+		u.Wake()
+	}
 	http.Redirect(w, r, "/setup", http.StatusSeeOther)
 }
