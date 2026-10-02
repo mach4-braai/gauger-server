@@ -121,6 +121,71 @@ func TestSizingUsesRunnerSamplesInsideEachStep(t *testing.T) {
 	}
 }
 
+func TestDailyDurationsPerWorkflowAndJob(t *testing.T) {
+	st := storetest.Open(t, 90*24*time.Hour)
+	ctx := context.Background()
+	day := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -2).Add(10 * time.Hour)
+	at := func(d time.Time, secs int) *time.Time { x := d.Add(time.Duration(secs) * time.Second); return &x }
+	type job struct {
+		name, status, conclusion string
+		from, to                 int
+	}
+	run := func(id int64, start time.Time, status string, jobs ...job) {
+		t.Helper()
+		err := st.InTx(ctx, func(tx pgx.Tx) error {
+			if _, err := store.UpsertRun(ctx, tx, "acme/app", &github.Run{ID: id, RunAttempt: 1, Name: "CI", Status: status}); err != nil {
+				return err
+			}
+			for i, j := range jobs {
+				gj := &github.Job{ID: id*10 + int64(i), RunID: id, RunAttempt: 1, WorkflowName: "CI", Name: j.name,
+					Status: j.status, Conclusion: j.conclusion, StartedAt: at(start, j.from)}
+				if j.status == "completed" {
+					gj.CompletedAt = at(start, j.to)
+				}
+				if err := store.UpsertJob(ctx, tx, "acme/app", gj); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(1, day, "completed", job{"a", "completed", "success", 0, 120}, job{"b", "completed", "success", 60, 300})
+	run(2, day, "completed", job{"a", "completed", "success", 0, 240}, job{"b", "completed", "skipped", 0, 0})
+	run(3, day, "completed", job{"a", "completed", "success", 0, 60}, job{"b", "completed", "failure", 0, 500})
+	run(4, day, "in_progress", job{"a", "completed", "success", 0, 30}, job{"b", "in_progress", "", 0, 0})
+	run(5, day.AddDate(0, 0, 1), "completed", job{"a", "completed", "success", 0, 100})
+
+	rows, err := st.DailyDurations(ctx, store.Filter{Since: day.AddDate(0, 0, -1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]store.DailyDuration{}
+	for _, r := range rows {
+		got[r.Job+" "+r.Day.UTC().Format("01-02")] = r
+	}
+	d0, d1 := day.Format("01-02"), day.AddDate(0, 0, 1).Format("01-02")
+	for key, want := range map[string]struct {
+		median float64
+		runs   int64
+	}{
+		" " + d0:  {270, 2},
+		" " + d1:  {100, 1},
+		"a " + d0: {90, 4},
+		"b " + d0: {240, 1},
+		"a " + d1: {100, 1},
+	} {
+		if r, ok := got[key]; !ok || r.Median != want.median || r.Runs != want.runs {
+			t.Errorf("%q = %+v, want median %v over %d runs", key, r, want.median, want.runs)
+		}
+	}
+	if len(rows) != 5 {
+		t.Errorf("rows = %+v, want 5", rows)
+	}
+}
+
 func TestJobCountsEachSampleInstantInOneStep(t *testing.T) {
 	st := storetest.Open(t, 90*24*time.Hour)
 	ctx := context.Background()

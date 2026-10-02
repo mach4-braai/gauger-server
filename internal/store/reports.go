@@ -316,6 +316,56 @@ func (s *Store) SpendGroups(ctx context.Context, f Filter) ([]SpendGroup, error)
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[SpendGroup])
 }
 
+// DailyDuration is the median duration of a workflow's runs, or of one of
+// its jobs, on one UTC day. Job is empty for the workflow.
+type DailyDuration struct {
+	Repository string
+	Workflow   string
+	Job        string
+	Day        time.Time
+	Median     float64
+	Runs       int64
+}
+
+// DailyDurations returns per-day medians for successful jobs and for
+// completed runs whose jobs all succeeded or were skipped. A run lasts from
+// its first job's start to its last job's end.
+func (s *Store) DailyDurations(ctx context.Context, f Filter) ([]DailyDuration, error) {
+	rows, err := s.Pool.Query(ctx, `
+		WITH j AS (
+			SELECT j.repository, coalesce(j.workflow_name, r.workflow_name, '') AS workflow, coalesce(j.name, '') AS job,
+				j.run_id, j.run_attempt, coalesce(r.status, '') AS run_status, coalesce(j.conclusion, '') AS conclusion,
+				j.started_at, j.completed_at
+			FROM jobs j
+			LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
+			WHERE j.status = 'completed' AND j.started_at >= $1 AND j.completed_at >= j.started_at
+			  AND ($2 = '' OR j.repository = $2)
+		),
+		run AS (
+			SELECT repository, workflow, min(started_at) FILTER (WHERE conclusion = 'success') AS started_at,
+				max(completed_at) FILTER (WHERE conclusion = 'success') AS completed_at
+			FROM j
+			GROUP BY repository, workflow, run_id, run_attempt
+			HAVING bool_and(run_status = 'completed') AND bool_and(conclusion IN ('success', 'skipped'))
+			   AND bool_or(conclusion = 'success')
+		)
+		SELECT repository, workflow, '', date_trunc('day', started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - started_at)), count(*)
+		FROM run
+		GROUP BY 1, 2, 3, 4
+		UNION ALL
+		SELECT repository, workflow, job, date_trunc('day', started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - started_at)), count(*)
+		FROM j
+		WHERE conclusion = 'success'
+		GROUP BY 1, 2, 3, 4
+		ORDER BY 1, 2, 3, 4`, f.Since, f.Repository)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[DailyDuration])
+}
+
 func (s *Store) Repositories(ctx context.Context) ([]string, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT DISTINCT repository FROM jobs ORDER BY 1`)
 	if err != nil {

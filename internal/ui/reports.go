@@ -119,6 +119,56 @@ func (u *UI) sizing(w http.ResponseWriter, r *http.Request) {
 	u.render(w, "sizing", map[string]any{"Filter": form, "Rows": rows})
 }
 
+const maxDailyDays = 60
+
+type dailyCell struct {
+	Median float64
+	Runs   int64
+}
+
+type dailyRow struct {
+	Repository string
+	Workflow   string
+	Job        string
+	Cells      []dailyCell
+}
+
+func (u *UI) daily(w http.ResponseWriter, r *http.Request) {
+	f, form, err := u.filter(r, 14)
+	if err != nil {
+		u.fail(w, err)
+		return
+	}
+	form.Days = min(form.Days, maxDailyDays)
+	first := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, 1-form.Days)
+	f.Since = first
+	durations, err := u.Store.DailyDurations(r.Context(), f)
+	if err != nil {
+		u.fail(w, err)
+		return
+	}
+	days := make([]time.Time, form.Days)
+	for i := range days {
+		days[i] = first.AddDate(0, 0, i)
+	}
+	var workflows, jobs []dailyRow
+	for _, d := range durations {
+		rows := &jobs
+		if d.Job == "" {
+			rows = &workflows
+		}
+		n := len(*rows)
+		if n == 0 || (*rows)[n-1].Repository != d.Repository || (*rows)[n-1].Workflow != d.Workflow || (*rows)[n-1].Job != d.Job {
+			*rows = append(*rows, dailyRow{Repository: d.Repository, Workflow: d.Workflow, Job: d.Job, Cells: make([]dailyCell, len(days))})
+			n++
+		}
+		if i := int(d.Day.Sub(first) / (24 * time.Hour)); i >= 0 && i < len(days) {
+			(*rows)[n-1].Cells[i] = dailyCell{Median: d.Median, Runs: d.Runs}
+		}
+	}
+	u.render(w, "daily", map[string]any{"Filter": form, "Days": days, "Workflows": workflows, "Jobs": jobs})
+}
+
 type spendRow struct {
 	store.SpendGroup
 	spend.Price
