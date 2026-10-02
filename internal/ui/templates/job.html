@@ -1,9 +1,9 @@
 {{define "title"}}{{.Job.Name}} · gauger{{end}}
 {{define "content"}}
 {{with .Job}}
-<h1>{{.Repository}} · {{.Workflow}} · {{if .Name}}{{.Name}}{{else}}job {{.ID}}{{end}}</h1>
+<h1>{{.Repository}} · {{if .Path}}<a href="{{workflowURL $.GitHubURL .Repository .Path}}">{{.Workflow}}</a>{{else}}{{.Workflow}}{{end}} · {{if .Name}}{{.Name}}{{else}}job {{.ID}}{{end}}</h1>
 <p>
-Run {{.RunID}} attempt {{.RunAttempt}}{{with .Branch}} on <code>{{.}}</code>{{end}}{{with .HeadSHA}} at <code>{{slice . 0 7}}</code>{{end}}{{with .Event}}, triggered by {{.}}{{end}}.
+<a href="{{runURL $.GitHubURL .Repository .RunID .RunAttempt}}">Run {{.RunID}} attempt {{.RunAttempt}}</a>{{with .Branch}} on <code><a href="{{branchURL $.GitHubURL $.Job.Repository .}}">{{.}}</a></code>{{end}}{{with .HeadSHA}} at <code><a href="{{commitURL $.GitHubURL $.Job.Repository .}}">{{slice . 0 7}}</a></code>{{end}}{{with .Event}}, triggered by {{.}}{{end}}.
 {{.Status}}{{with .Conclusion}} · {{.}}{{end}}{{with span .StartedAt .CompletedAt}} in {{.}}{{end}}.
 {{with .HTMLURL}}<a href="{{.}}">View on GitHub</a>{{end}}
 </p>
@@ -20,7 +20,7 @@ Runner {{if .RunnerName}}{{.RunnerName}}{{else}}unknown{{end}}{{with .Labels}} (
 <tr><th class="num">#</th><th>Step</th><th>Result</th><th>Started (UTC)</th><th class="num">Duration</th><th class="num">Peak memory</th><th class="num">of MemTotal</th><th class="num">Peak CPU (cores)</th><th class="num">Time ≥90% CPU</th><th class="num">Samples</th></tr>
 {{range .Steps}}
 <tr>
-<td class="num">{{.Number}}</td><td>{{.Name}}</td>
+<td class="num">{{.Number}}</td><td>{{if $.Job.HTMLURL}}<a href="{{stepURL $.Job.HTMLURL .Number}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
 <td>{{if .Conclusion}}{{.Conclusion}}{{else}}{{.Status}}{{end}}</td>
 <td>{{when .StartedAt}}</td>
 <td class="num">{{span .StartedAt .CompletedAt}}</td>

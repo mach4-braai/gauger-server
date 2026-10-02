@@ -24,7 +24,7 @@
 <table style="white-space:nowrap">
 <tr><th>Repository</th><th>Workflow</th>{{range $.Labels}}<th class="num">{{.}}</th>{{end}}</tr>
 {{range .Workflows}}
-<tr><td>{{.Repository}}</td><td>{{.Workflow}}</td>{{range .Cells}}<td class="num">{{if .Runs}}<span title="{{.Runs}} runs">{{secs .Median}}</span>{{end}}</td>{{end}}</tr>
+<tr><td>{{.Repository}}</td><td>{{if .Path}}<a href="{{workflowURL $.GitHubURL .Repository .Path}}">{{.Workflow}}</a>{{else}}{{.Workflow}}{{end}}</td>{{range .Cells}}<td class="num">{{if .Runs}}<span title="{{.Runs}} runs">{{secs .Median}}</span>{{end}}</td>{{end}}</tr>
 {{end}}
 </table>
 </div>
@@ -37,7 +37,7 @@
 <table style="white-space:nowrap">
 <tr><th>Repository</th><th>Workflow</th><th>Job</th>{{range $.Labels}}<th class="num">{{.}}</th>{{end}}</tr>
 {{range .Jobs}}
-<tr><td>{{.Repository}}</td><td>{{.Workflow}}</td><td>{{.Job}}</td>{{range .Cells}}<td class="num">{{if .Runs}}<span title="{{.Runs}} runs">{{secs .Median}}</span>{{end}}</td>{{end}}</tr>
+<tr><td>{{.Repository}}</td><td>{{if .Path}}<a href="{{workflowURL $.GitHubURL .Repository .Path}}">{{.Workflow}}</a>{{else}}{{.Workflow}}{{end}}</td><td>{{if .JobID}}<a href="/jobs/{{.JobID}}">{{.Job}}</a>{{else}}{{.Job}}{{end}}</td>{{range .Cells}}<td class="num">{{if .Runs}}<span title="{{.Runs}} runs">{{secs .Median}}</span>{{end}}</td>{{end}}</tr>
 {{end}}
 </table>
 </div>

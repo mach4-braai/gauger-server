@@ -161,8 +161,8 @@ func UpsertRun(ctx context.Context, tx pgx.Tx, repo string, r *github.Run) (stri
 	wins := errors.Is(err, pgx.ErrNoRows) || statusRank(r.Status) >= statusRank(prev)
 	var status string
 	err = tx.QueryRow(ctx, `
-		INSERT INTO runs (id, attempt, repository, workflow_name, head_branch, head_sha, event, status, conclusion, html_url, created_at, run_started_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		INSERT INTO runs (id, attempt, repository, workflow_name, head_branch, head_sha, event, status, conclusion, html_url, path, created_at, run_started_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
 		ON CONFLICT (id, attempt) DO UPDATE SET
 			repository     = EXCLUDED.repository,
 			workflow_name  = COALESCE(EXCLUDED.workflow_name, runs.workflow_name),
@@ -170,14 +170,15 @@ func UpsertRun(ctx context.Context, tx pgx.Tx, repo string, r *github.Run) (stri
 			head_sha       = COALESCE(EXCLUDED.head_sha, runs.head_sha),
 			event          = COALESCE(EXCLUDED.event, runs.event),
 			html_url       = COALESCE(EXCLUDED.html_url, runs.html_url),
+			path           = COALESCE(EXCLUDED.path, runs.path),
 			created_at     = COALESCE(runs.created_at, EXCLUDED.created_at),
 			run_started_at = COALESCE(EXCLUDED.run_started_at, runs.run_started_at),
-			status         = CASE WHEN $14 THEN EXCLUDED.status ELSE runs.status END,
-			conclusion     = CASE WHEN $14 THEN EXCLUDED.conclusion ELSE runs.conclusion END,
-			updated_at     = CASE WHEN $14 THEN COALESCE(EXCLUDED.updated_at, runs.updated_at) ELSE runs.updated_at END
+			status         = CASE WHEN $15 THEN EXCLUDED.status ELSE runs.status END,
+			conclusion     = CASE WHEN $15 THEN EXCLUDED.conclusion ELSE runs.conclusion END,
+			updated_at     = CASE WHEN $15 THEN COALESCE(EXCLUDED.updated_at, runs.updated_at) ELSE runs.updated_at END
 		RETURNING status`,
 		r.ID, r.RunAttempt, repo, nullIfEmpty(r.Name), nullIfEmpty(r.HeadBranch), nullIfEmpty(r.HeadSHA),
-		nullIfEmpty(r.Event), r.Status, nullIfEmpty(r.Conclusion), nullIfEmpty(r.HTMLURL),
+		nullIfEmpty(r.Event), r.Status, nullIfEmpty(r.Conclusion), nullIfEmpty(r.HTMLURL), nullIfEmpty(r.Path),
 		r.CreatedAt, r.RunStartedAt, r.UpdatedAt, wins).Scan(&status)
 	return status, err
 }

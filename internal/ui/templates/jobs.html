@@ -6,9 +6,9 @@
 <tr><th>Repository</th><th>Workflow</th><th>Job</th><th>Branch</th><th>Status</th><th>Started (UTC)</th><th class="num">Duration</th><th class="num">Samples</th></tr>
 {{range .Rows}}
 <tr>
-<td>{{.Repository}}</td><td>{{.Workflow}}</td>
+<td>{{.Repository}}</td><td>{{if .Path}}<a href="{{workflowURL $.GitHubURL .Repository .Path}}">{{.Workflow}}</a>{{else}}{{.Workflow}}{{end}}</td>
 <td><a href="/jobs/{{.ID}}">{{if .Name}}{{.Name}}{{else}}{{.ID}}{{end}}</a></td>
-<td>{{.Branch}}</td>
+<td>{{if .Branch}}<a href="{{branchURL $.GitHubURL .Repository .Branch}}">{{.Branch}}</a>{{end}}</td>
 <td>{{.Status}}{{with .Conclusion}} · {{.}}{{end}}</td>
 <td>{{when .StartedAt}}</td>
 <td class="num">{{span .StartedAt .CompletedAt}}</td>

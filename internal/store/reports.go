@@ -26,10 +26,21 @@ const stepWindows = `
 				min(s.started_at) OVER (PARTITION BY s.job_id ORDER BY s.number ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING)) AS ends_at
 			FROM steps s`
 
+// workflowPath is a CTE mapping each repository and workflow name to the
+// path of its latest run, for linking aggregate rows to their workflow.
+const workflowPath = `
+		workflow_path AS (
+			SELECT DISTINCT ON (repository, workflow_name) repository, workflow_name AS workflow, path
+			FROM runs
+			WHERE path IS NOT NULL
+			ORDER BY repository, workflow_name, coalesce(run_started_at, created_at) DESC
+		)`
+
 type JobRow struct {
 	ID           int64
 	Repository   string
 	Workflow     string
+	Path         string
 	Name         string
 	Branch       string
 	Status       string
@@ -42,7 +53,7 @@ type JobRow struct {
 
 func (s *Store) RecentJobs(ctx context.Context, f Filter, limit int) ([]JobRow, error) {
 	rows, err := s.Pool.Query(ctx, `
-		SELECT j.id, j.repository, coalesce(j.workflow_name, r.workflow_name, ''), coalesce(j.name, ''),
+		SELECT j.id, j.repository, coalesce(j.workflow_name, r.workflow_name, ''), coalesce(r.path, ''), coalesce(j.name, ''),
 			coalesce(j.head_branch, r.head_branch, ''), j.status, coalesce(j.conclusion, ''),
 			j.started_at, j.completed_at,
 			(SELECT count(DISTINCT m.ts) FROM samples m WHERE m.job_id = j.id),
@@ -92,7 +103,7 @@ type StepUsage struct {
 func (s *Store) Job(ctx context.Context, id int64) (*JobDetail, error) {
 	var d JobDetail
 	err := s.Pool.QueryRow(ctx, `
-		SELECT j.id, j.repository, coalesce(j.workflow_name, r.workflow_name, ''), coalesce(j.name, ''),
+		SELECT j.id, j.repository, coalesce(j.workflow_name, r.workflow_name, ''), coalesce(r.path, ''), coalesce(j.name, ''),
 			coalesce(j.head_branch, r.head_branch, ''), j.status, coalesce(j.conclusion, ''),
 			j.started_at, j.completed_at,
 			(SELECT count(DISTINCT m.ts) FROM samples m WHERE m.job_id = j.id),
@@ -104,7 +115,7 @@ func (s *Store) Job(ctx context.Context, id int64) (*JobDetail, error) {
 		FROM jobs j
 		LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
 		WHERE j.id = $1`, id, MetricMemoryLimit, MetricCPUCount).Scan(
-		&d.ID, &d.Repository, &d.Workflow, &d.Name, &d.Branch, &d.Status, &d.Conclusion,
+		&d.ID, &d.Repository, &d.Workflow, &d.Path, &d.Name, &d.Branch, &d.Status, &d.Conclusion,
 		&d.StartedAt, &d.CompletedAt, &d.Samples, &d.FromArtifact,
 		&d.RunID, &d.RunAttempt, &d.RunnerName, &d.Labels, &d.HTMLURL,
 		&d.Event, &d.HeadSHA, &d.RunnerSeen, &d.RunnerDone, &d.MemTotal, &d.CPUCount)
@@ -159,19 +170,25 @@ type Filter struct {
 }
 
 type SlowStep struct {
-	Name string
-	Runs int64
-	P50  float64
-	P95  float64
+	Name       string
+	Runs       int64
+	P50        float64
+	P95        float64
+	JobID      int64
+	StepNumber int
+	JobHTMLURL string
 }
 
 // SlowSteps returns p50 and p95 duration in seconds per step name over
-// successful steps.
+// successful steps, plus the job and step number of the slowest occurrence.
 func (s *Store) SlowSteps(ctx context.Context, f Filter) ([]SlowStep, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT s.name, count(*),
 			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM s.completed_at - s.started_at)),
-			percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM s.completed_at - s.started_at))
+			percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM s.completed_at - s.started_at)),
+			(array_agg(s.job_id ORDER BY s.completed_at - s.started_at DESC, s.job_id DESC, s.number DESC))[1],
+			(array_agg(s.number ORDER BY s.completed_at - s.started_at DESC, s.job_id DESC, s.number DESC))[1],
+			coalesce((array_agg(j.html_url ORDER BY s.completed_at - s.started_at DESC, s.job_id DESC, s.number DESC))[1], '')
 		FROM steps s JOIN jobs j ON j.id = s.job_id
 		WHERE s.conclusion = 'success' AND s.started_at >= $1 AND s.completed_at IS NOT NULL
 		  AND ($2 = '' OR j.repository = $2)
@@ -195,6 +212,10 @@ type Regression struct {
 	Runs       int64
 	Baseline   float64
 	BaseRuns   int64
+	Path       string
+	JobID      int64
+	StepNumber int
+	JobHTMLURL string
 }
 
 // BaselineDays is the rolling window a day's median is compared with.
@@ -202,14 +223,16 @@ const BaselineDays = 14
 
 // Regressions compares each day's median duration per repository,
 // workflow, job, step and branch with the median of the BaselineDays
-// before it. It returns days at least ratio times their baseline.
+// before it. It returns days at least ratio times their baseline, with the
+// job and step number of the day's slowest occurrence.
 func (s *Store) Regressions(ctx context.Context, f Filter, ratio, minSeconds float64) ([]Regression, error) {
 	rows, err := s.Pool.Query(ctx, `
 		WITH d AS (
 			SELECT j.repository, coalesce(j.workflow_name, '') AS workflow, coalesce(j.name, '') AS job,
 				s.name AS step, coalesce(j.head_branch, '') AS branch,
 				(s.started_at AT TIME ZONE 'UTC')::date AS day,
-				extract(epoch FROM s.completed_at - s.started_at) AS secs
+				extract(epoch FROM s.completed_at - s.started_at) AS secs,
+				s.job_id, s.number AS step_number
 			FROM steps s JOIN jobs j ON j.id = s.job_id
 			WHERE s.conclusion = 'success' AND s.completed_at IS NOT NULL
 			  AND s.started_at >= $1::timestamptz - make_interval(days => $5)
@@ -217,13 +240,16 @@ func (s *Store) Regressions(ctx context.Context, f Filter, ratio, minSeconds flo
 		),
 		daily AS (
 			SELECT repository, workflow, job, step, branch, day,
-				percentile_cont(0.5) WITHIN GROUP (ORDER BY secs) AS median, count(*) AS runs
+				percentile_cont(0.5) WITHIN GROUP (ORDER BY secs) AS median, count(*) AS runs,
+				(array_agg(job_id ORDER BY secs DESC, job_id DESC, step_number DESC))[1] AS job_id,
+				(array_agg(step_number ORDER BY secs DESC, job_id DESC, step_number DESC))[1] AS step_number
 			FROM d
 			WHERE day >= ($1::timestamptz AT TIME ZONE 'UTC')::date
 			GROUP BY 1, 2, 3, 4, 5, 6
-		)
+		),`+workflowPath+`
 		SELECT daily.repository, daily.workflow, daily.job, daily.step, daily.branch, daily.day::timestamptz,
-			daily.median, daily.runs, b.base, b.n
+			daily.median, daily.runs, b.base, b.n,
+			coalesce(wp.path, ''), daily.job_id, daily.step_number, coalesce(jb.html_url, '')
 		FROM daily
 		CROSS JOIN LATERAL (
 			SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY d.secs) AS base, count(*) AS n
@@ -232,6 +258,8 @@ func (s *Store) Regressions(ctx context.Context, f Filter, ratio, minSeconds flo
 			  AND d.step = daily.step AND d.branch = daily.branch
 			  AND d.day >= daily.day - $5 AND d.day < daily.day
 		) b
+		LEFT JOIN workflow_path wp ON wp.repository = daily.repository AND wp.workflow = daily.workflow
+		LEFT JOIN jobs jb ON jb.id = daily.job_id
 		WHERE b.n >= 3 AND b.base > 0 AND daily.median >= $4 AND daily.median >= b.base * $3
 		ORDER BY daily.median / b.base DESC
 		LIMIT 200`, f.Since, f.Repository, ratio, minSeconds, BaselineDays)
@@ -252,35 +280,52 @@ type Sizing struct {
 	PeakCPU    *float64
 	Saturated  *float64
 	CPUCount   *float64
+	Path       string
+	JobID      int64
+	StepNumber int
+	JobHTMLURL string
 }
 
 // Sizing reports, per step, the runner's peak memory against MemTotal and
-// its CPU use against nproc during the step's time window.
+// its CPU use against nproc during the step's time window, with the job
+// and step number of the occurrence with the peak memory.
 func (s *Store) Sizing(ctx context.Context, f Filter) ([]Sizing, error) {
 	rows, err := s.Pool.Query(ctx, `
 		WITH win AS (
 			SELECT j.repository, coalesce(j.workflow_name, '') AS workflow, coalesce(j.name, '') AS job,
-				w.name AS step, w.job_id, w.started_at, w.ends_at
+				w.name AS step, w.job_id, w.number, w.started_at, w.ends_at
 			FROM (`+stepWindows+`
 				WHERE s.started_at >= $1 AND s.completed_at IS NOT NULL
 			) w JOIN jobs j ON j.id = w.job_id
 			WHERE ($2 = '' OR j.repository = $2)
 			  AND EXISTS (SELECT 1 FROM samples x WHERE x.job_id = w.job_id)
-		)
-		SELECT w.repository, w.workflow, w.job, w.step, count(DISTINCT w.job_id),
-			max(m.value) FILTER (WHERE m.metric = $3 AND m.series = $4),
-			max(k.mem_total),
-			max(m.value) FILTER (WHERE m.metric = $5 AND m.series = ''),
-			avg(CASE WHEN m.value >= $8 THEN 1.0 ELSE 0.0 END) FILTER (WHERE m.metric = $5 AND m.series = ''),
-			max(k.cpus)
-		FROM win w
-		JOIN samples m ON m.job_id = w.job_id AND m.ts >= w.started_at AND m.ts < w.ends_at
-		CROSS JOIN LATERAL (
-			SELECT max(value) FILTER (WHERE metric = $6) AS mem_total, max(value) FILTER (WHERE metric = $7) AS cpus
-			FROM samples WHERE job_id = w.job_id AND metric IN ($6, $7)
-		) k
-		GROUP BY 1, 2, 3, 4
-		ORDER BY max(m.value) FILTER (WHERE m.metric = $3 AND m.series = $4) / nullif(max(k.mem_total), 0) DESC NULLS LAST
+		),
+		occ AS (
+			SELECT w.repository, w.workflow, w.job, w.step, w.job_id, w.number,
+				max(m.value) FILTER (WHERE m.metric = $3 AND m.series = $4) AS peak_mem,
+				max(k.mem_total) AS mem_total,
+				max(m.value) FILTER (WHERE m.metric = $5 AND m.series = '') AS peak_cpu,
+				avg(CASE WHEN m.value >= $8 THEN 1.0 ELSE 0.0 END) FILTER (WHERE m.metric = $5 AND m.series = '') AS saturated,
+				max(k.cpus) AS cpus
+			FROM win w
+			JOIN samples m ON m.job_id = w.job_id AND m.ts >= w.started_at AND m.ts < w.ends_at
+			CROSS JOIN LATERAL (
+				SELECT max(value) FILTER (WHERE metric = $6) AS mem_total, max(value) FILTER (WHERE metric = $7) AS cpus
+				FROM samples WHERE job_id = w.job_id AND metric IN ($6, $7)
+			) k
+			GROUP BY 1, 2, 3, 4, 5, 6
+		),`+workflowPath+`
+		SELECT occ.repository, occ.workflow, occ.job, occ.step, count(DISTINCT occ.job_id),
+			max(occ.peak_mem), max(occ.mem_total), max(occ.peak_cpu), avg(occ.saturated), max(occ.cpus),
+			coalesce(max(wp.path), ''),
+			(array_agg(occ.job_id ORDER BY occ.peak_mem DESC NULLS LAST, occ.job_id DESC, occ.number DESC))[1],
+			(array_agg(occ.number ORDER BY occ.peak_mem DESC NULLS LAST, occ.job_id DESC, occ.number DESC))[1],
+			coalesce((array_agg(jb.html_url ORDER BY occ.peak_mem DESC NULLS LAST, occ.job_id DESC, occ.number DESC))[1], '')
+		FROM occ
+		LEFT JOIN workflow_path wp ON wp.repository = occ.repository AND wp.workflow = occ.workflow
+		LEFT JOIN jobs jb ON jb.id = occ.job_id
+		GROUP BY occ.repository, occ.workflow, occ.job, occ.step
+		ORDER BY max(occ.peak_mem) / nullif(max(occ.mem_total), 0) DESC NULLS LAST
 		LIMIT 300`, f.Since, f.Repository, MetricMemoryUsage, SeriesMemoryUsed, MetricCPUUtilization,
 		MetricMemoryLimit, MetricCPUCount, saturatedCPU)
 	if err != nil {
@@ -325,6 +370,8 @@ type DailyDuration struct {
 	Bucket     time.Time
 	Median     float64
 	Runs       int64
+	Path       string
+	JobID      int64
 }
 
 // DailyDurations returns per-bucket medians for successful jobs and for
@@ -333,12 +380,13 @@ type DailyDuration struct {
 // is "day", "week" or "month"; weeks start Monday UTC. The median is
 // taken over every run (or job) in the bucket, not over daily medians.
 // workflow and job narrow the result (empty matches everything); they
-// never drop a job from a run's own start/end/success computation.
+// never drop a job from a run's own start/end/success computation. JobID
+// is the latest successful job in the window, zero for workflow rows.
 func (s *Store) DailyDurations(ctx context.Context, f Filter, bucket, workflow, job string) ([]DailyDuration, error) {
 	rows, err := s.Pool.Query(ctx, `
 		WITH j AS (
 			SELECT j.repository, coalesce(j.workflow_name, r.workflow_name, '') AS workflow, coalesce(j.name, '') AS job,
-				j.run_id, j.run_attempt, coalesce(r.status, '') AS run_status, coalesce(r.conclusion, '') AS run_conclusion,
+				j.id, j.run_id, j.run_attempt, coalesce(r.status, '') AS run_status, coalesce(r.conclusion, '') AS run_conclusion,
 				coalesce(j.conclusion, '') AS conclusion,
 				j.started_at, j.completed_at
 			FROM jobs j
@@ -352,19 +400,30 @@ func (s *Store) DailyDurations(ctx context.Context, f Filter, bucket, workflow, 
 			FROM j
 			GROUP BY repository, workflow, run_id, run_attempt
 			HAVING bool_and(run_status = 'completed' AND run_conclusion = 'success') AND bool_or(conclusion = 'success')
-		)
-		SELECT repository, workflow, '', date_trunc($3, started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
-			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - started_at)), count(*)
+		),
+		latest_job AS (
+			SELECT DISTINCT ON (repository, workflow, job) repository, workflow, job, id
+			FROM j
+			WHERE conclusion = 'success'
+			ORDER BY repository, workflow, job, started_at DESC
+		),`+workflowPath+`
+		SELECT run.repository, run.workflow, '', date_trunc($3, run.started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM run.completed_at - run.started_at)), count(*),
+			coalesce(wp.path, ''), 0
 		FROM run
-		WHERE $4 = '' OR workflow = $4
-		GROUP BY 1, 2, 3, 4
+		LEFT JOIN workflow_path wp ON wp.repository = run.repository AND wp.workflow = run.workflow
+		WHERE $4 = '' OR run.workflow = $4
+		GROUP BY 1, 2, 3, 4, wp.path
 		UNION ALL
-		SELECT repository, workflow, job, date_trunc($3, started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
-			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM completed_at - started_at)), count(*)
+		SELECT j.repository, j.workflow, j.job, date_trunc($3, j.started_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',
+			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM j.completed_at - j.started_at)), count(*),
+			coalesce(wp.path, ''), coalesce(lj.id, 0)
 		FROM j
-		WHERE conclusion = 'success'
-		  AND ($4 = '' OR workflow = $4) AND ($5 = '' OR job = $5)
-		GROUP BY 1, 2, 3, 4
+		LEFT JOIN workflow_path wp ON wp.repository = j.repository AND wp.workflow = j.workflow
+		LEFT JOIN latest_job lj ON lj.repository = j.repository AND lj.workflow = j.workflow AND lj.job = j.job
+		WHERE j.conclusion = 'success'
+		  AND ($4 = '' OR j.workflow = $4) AND ($5 = '' OR j.job = $5)
+		GROUP BY 1, 2, 3, 4, wp.path, lj.id
 		ORDER BY 1, 2, 3, 4`, f.Since, f.Repository, bucket, workflow, job)
 	if err != nil {
 		return nil, err

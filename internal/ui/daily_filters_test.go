@@ -74,7 +74,7 @@ func TestDailyFiltersByWorkflowAndJob(t *testing.T) {
 	if len(items) != 2 || items[0][1] != "a" || items[1][1] != "b" {
 		t.Fatalf("legend = %v, want bars for jobs a and b, not workflows", items)
 	}
-	if !regexp.MustCompile(`(?s)<h2>Jobs</h2>.*?<td>CI</td><td>a</td>.*?<td>CI</td><td>b</td>`).MatchString(page) {
+	if !regexp.MustCompile(`(?s)<h2>Jobs</h2>.*?<td>CI</td><td><a href="/jobs/\d+">a</a></td>.*?<td>CI</td><td><a href="/jobs/\d+">b</a></td>`).MatchString(page) {
 		t.Errorf("Jobs table missing narrowed a/b rows:\n%s", page)
 	}
 	if regexp.MustCompile(`(?s)<h2>Jobs</h2>.*?release`).MatchString(page) {
