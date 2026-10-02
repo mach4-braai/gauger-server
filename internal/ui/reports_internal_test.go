@@ -44,6 +44,49 @@ func TestDailyChartBarHeightsMatchMedians(t *testing.T) {
 	}
 }
 
+func TestDailyChartKeepsEveryBarInsideItsBucket(t *testing.T) {
+	for _, tc := range []struct {
+		series, buckets int
+		wantWidth       string
+	}{
+		{32, 14, ""},
+		{2, 14, "100%"},
+	} {
+		labels := make([]string, tc.buckets)
+		for i := range labels {
+			labels[i] = fmt.Sprintf("b%02d", i)
+		}
+		rows := make([]dailyRow, tc.series)
+		for j := range rows {
+			rows[j] = dailyRow{Workflow: fmt.Sprintf("w%02d", j), Cells: make([]dailyCell, tc.buckets)}
+			for i := range rows[j].Cells {
+				rows[j].Cells[i] = dailyCell{Median: float64(10 + j), Runs: 1}
+			}
+		}
+		out := string(dailyChart(labels, rows, workflowLabel(false)))
+
+		svg := regexp.MustCompile(`viewBox="0 0 ([\d.]+) [\d.]+" width="([^"]+)"`).FindStringSubmatch(out)
+		viewW, _ := strconv.ParseFloat(svg[1], 64)
+		if tc.wantWidth != "" && (svg[2] != tc.wantWidth || viewW != dailyChartW) {
+			t.Errorf("%d series: viewBox width %v, width %q; want %v and %q", tc.series, viewW, svg[2], dailyChartW, tc.wantWidth)
+		}
+		groupW := (viewW - dailyPadL - dailyPadR) / float64(tc.buckets)
+		bars := regexp.MustCompile(`<rect x="([\d.]+)" y="[\d.]+" width="([\d.]+)"[^>]*><title>[^·]+ · b(\d+) · `).FindAllStringSubmatch(out, -1)
+		if len(bars) != tc.series*tc.buckets {
+			t.Fatalf("%d series: %d bars, want %d", tc.series, len(bars), tc.series*tc.buckets)
+		}
+		for _, m := range bars {
+			x, _ := strconv.ParseFloat(m[1], 64)
+			w, _ := strconv.ParseFloat(m[2], 64)
+			i, _ := strconv.Atoi(m[3])
+			left, right := dailyPadL+float64(i)*groupW, dailyPadL+float64(i+1)*groupW
+			if w < dailyMinBarW || x < left-0.05 || x+w > right+0.05 {
+				t.Fatalf("%d series: bar x=%v w=%v in bucket %d, want w >= %v inside [%v, %v]", tc.series, x, w, i, dailyMinBarW, left, right)
+			}
+		}
+	}
+}
+
 func TestDailyChartWithAllReposPrefixesLabel(t *testing.T) {
 	rows := []dailyRow{{Repository: "acme/app", Workflow: "CI", Cells: []dailyCell{{Median: 10, Runs: 1}}}}
 	out := string(dailyChart([]string{"10-01"}, rows, workflowLabel(true)))
