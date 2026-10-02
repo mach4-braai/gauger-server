@@ -331,6 +331,68 @@ func TestDailyDurationsFiltersByWorkflowAndJob(t *testing.T) {
 	}
 }
 
+func TestDailyDurationsGroupsWorkflowsByFile(t *testing.T) {
+	st := storetest.Open(t, 90*24*time.Hour)
+	ctx := context.Background()
+	day := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -2).Add(10 * time.Hour)
+	run := func(id int64, name, path, job string, startMin, secs int) {
+		t.Helper()
+		start := day.Add(time.Duration(startMin) * time.Minute)
+		end := start.Add(time.Duration(secs) * time.Second)
+		err := st.InTx(ctx, func(tx pgx.Tx) error {
+			if _, err := store.UpsertRun(ctx, tx, "acme/app", &github.Run{ID: id, RunAttempt: 1, Name: name, Path: path,
+				Status: "completed", Conclusion: "success", RunStartedAt: &start}); err != nil {
+				return err
+			}
+			return store.UpsertJob(ctx, tx, "acme/app", &github.Job{ID: id, RunID: id, RunAttempt: 1, WorkflowName: name, Name: job,
+				Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(1, "PR #1", "dynamic/github-code-scanning/codeql", "Analyze", 0, 60)
+	run(2, "PR #2", "dynamic/github-code-scanning/codeql", "Analyze", 10, 120)
+	run(3, "Build", ".github/workflows/ci.yml", "go", 20, 30)
+	run(4, "CI", ".github/workflows/ci.yml", "go", 30, 50)
+	run(5, "CI", "", "go", 40, 70)
+
+	workflows, err := st.Workflows(ctx, "acme/app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"CI", "github-code-scanning/codeql"}; !slices.Equal(workflows, want) {
+		t.Errorf("Workflows = %v, want %v", workflows, want)
+	}
+	jobs, err := st.Jobs(ctx, "acme/app", "github-code-scanning/codeql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"Analyze"}; !slices.Equal(jobs, want) {
+		t.Errorf("Jobs = %v, want %v", jobs, want)
+	}
+
+	rows, err := st.DailyDurations(ctx, store.Filter{Since: day.AddDate(0, 0, -1)}, "day", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]store.DailyDuration{}
+	for _, r := range rows {
+		if r.Job == "" {
+			got[r.Workflow] = r
+		}
+	}
+	if len(got) != 2 {
+		t.Fatalf("workflow rows = %+v, want CI and github-code-scanning/codeql only", got)
+	}
+	if r := got["github-code-scanning/codeql"]; r.Runs != 2 || r.Median != 90 || r.Path != "dynamic/github-code-scanning/codeql" {
+		t.Errorf("codeql row = %+v, want both PR runs, median 90", r)
+	}
+	if r := got["CI"]; r.Runs != 3 || r.Median != 50 || r.Path != ".github/workflows/ci.yml" {
+		t.Errorf("CI row = %+v, want the renamed run and the run without a path, median 50", r)
+	}
+}
+
 func TestJobCountsEachSampleInstantInOneStep(t *testing.T) {
 	st := storetest.Open(t, 90*24*time.Hour)
 	ctx := context.Background()

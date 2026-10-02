@@ -277,7 +277,7 @@ func (u *UI) daily(w http.ResponseWriter, r *http.Request) {
 			rows = &workflows
 		}
 		n := len(*rows)
-		if n == 0 || (*rows)[n-1].Repository != d.Repository || (*rows)[n-1].Workflow != d.Workflow || (*rows)[n-1].Job != d.Job {
+		if n == 0 || (*rows)[n-1].Repository != d.Repository || (*rows)[n-1].Path != d.Path || (*rows)[n-1].Workflow != d.Workflow || (*rows)[n-1].Job != d.Job {
 			*rows = append(*rows, dailyRow{Repository: d.Repository, Workflow: d.Workflow, Job: d.Job, Path: d.Path, JobID: d.JobID, Cells: make([]dailyCell, len(starts))})
 			n++
 		}
