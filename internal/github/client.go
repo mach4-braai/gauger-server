@@ -330,6 +330,45 @@ func (c *Client) RepoInstallation(ctx context.Context, repo string) (int64, erro
 	return out.ID, nil
 }
 
+// MaxRunsPerQuery is the most runs GitHub returns for one created query,
+// regardless of what total_count reports.
+const MaxRunsPerQuery = 1000
+
+// ListRuns returns the workflow runs created in [from, to], GitHub's
+// inclusive date range, and the query's total_count. GitHub never returns
+// more than MaxRunsPerQuery runs for one query, however large total_count
+// is. When stopOverCap is true, ListRuns stops after the first page once it
+// sees total_count is over MaxRunsPerQuery, since a caller narrowing the
+// range would throw the rest away; pass false to page all the way to
+// MaxRunsPerQuery when the range can't be narrowed any further.
+func (c *Client) ListRuns(ctx context.Context, inst int64, repo string, from, to time.Time, stopOverCap bool) ([]Run, int, error) {
+	owner, name, err := splitRepo(repo)
+	if err != nil {
+		return nil, 0, err
+	}
+	created := from.UTC().Format("2006-01-02") + ".." + to.UTC().Format("2006-01-02")
+	var runs []Run
+	total := 0
+	for page := 1; ; page++ {
+		var out struct {
+			TotalCount   int   `json:"total_count"`
+			WorkflowRuns []Run `json:"workflow_runs"`
+		}
+		path := fmt.Sprintf("/repos/%s/%s/actions/runs?created=%s&per_page=100&page=%d", owner, name, url.QueryEscape(created), page)
+		if err := c.do(ctx, inst, http.MethodGet, path, nil, &out); err != nil {
+			return nil, 0, err
+		}
+		if page == 1 {
+			total = out.TotalCount
+		}
+		runs = append(runs, out.WorkflowRuns...)
+		if len(out.WorkflowRuns) < 100 || len(runs) >= total || len(runs) >= MaxRunsPerQuery ||
+			(stopOverCap && total > MaxRunsPerQuery) {
+			return runs, total, nil
+		}
+	}
+}
+
 func (c *Client) GetJob(ctx context.Context, inst int64, repo string, id int64) (*Job, error) {
 	owner, name, err := splitRepo(repo)
 	if err != nil {

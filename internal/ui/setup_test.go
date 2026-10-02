@@ -80,3 +80,65 @@ func TestManifestFlowCreatesApp(t *testing.T) {
 		t.Fatalf("second manifest: status %d, want 409", rec.Code)
 	}
 }
+
+func TestBackfillQueuesTaskPerInstalledRepository(t *testing.T) {
+	ctx := context.Background()
+	st := storetest.Open(t, 90*24*time.Hour)
+	gh := githubtest.New(t)
+	if err := st.SaveApp(ctx, &github.AppConversion{ID: githubtest.AppID, Slug: "gauger-test", HTMLURL: "https://github.com/apps/gauger-test", WebhookSecret: githubtest.WebhookSecret, PEM: gh.PEM()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetInstallation(ctx, "acme/with-app", githubtest.Installation); err != nil {
+		t.Fatal(err)
+	}
+	h := (&ui.UI{Store: st, GitHub: github.NewClient(gh.URL, st), Creds: st, DNSName: "gauger.example.ts.net", GitHubURL: "https://github.com"}).Handler()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/setup", nil))
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `action="/setup/backfill"`) {
+		t.Fatalf("setup page missing backfill form: status %d: %s", rec.Code, rec.Body)
+	}
+
+	form := url.Values{"days": {"14"}}
+	req := httptest.NewRequest(http.MethodPost, "/setup/backfill", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("backfill: status %d: %s", rec.Code, rec.Body)
+	}
+
+	var key, repo string
+	if err := st.Pool.QueryRow(ctx, `SELECT key, repository FROM tasks WHERE kind = 'backfill'`).Scan(&key, &repo); err != nil {
+		t.Fatalf("no backfill task queued: %v", err)
+	}
+	if repo != "acme/with-app" {
+		t.Fatalf("backfill queued for repository %q, want acme/with-app", repo)
+	}
+	wantSince := time.Now().UTC().AddDate(0, 0, -14).Format("2006-01-02")
+	if key != wantSince+":acme/with-app" {
+		t.Fatalf("backfill key = %q, want %q", key, wantSince+":acme/with-app")
+	}
+
+	req2 := httptest.NewRequest(http.MethodPost, "/setup/backfill", strings.NewReader(form.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req2)
+	var count int
+	st.Pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE kind = 'backfill'`).Scan(&count)
+	if count != 1 {
+		t.Fatalf("backfill tasks after resubmit = %d, want 1", count)
+	}
+}
+
+func TestBackfillRequiresConfiguredApp(t *testing.T) {
+	st := storetest.Open(t, 90*24*time.Hour)
+	gh := githubtest.New(t)
+	h := (&ui.UI{Store: st, GitHub: github.NewClient(gh.URL, st), Creds: st, DNSName: "gauger.example.ts.net", GitHubURL: "https://github.com"}).Handler()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/setup/backfill", strings.NewReader(url.Values{"days": {"14"}}.Encode())))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status %d, want 409", rec.Code)
+	}
+}

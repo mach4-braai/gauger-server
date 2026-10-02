@@ -44,6 +44,7 @@ func New(st *store.Store, gh *github.Client) *Reconciler {
 		store.KindRun:      r.runTask,
 		store.KindJob:      r.jobTask,
 		store.KindArtifact: r.artifactTask,
+		store.KindBackfill: r.backfillTask,
 	}
 	return r
 }
