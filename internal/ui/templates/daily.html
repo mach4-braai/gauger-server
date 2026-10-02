@@ -3,6 +3,7 @@
 <h1>Daily timing</h1>
 <form class="filters">{{template "filters" .Filter}} <button>Apply</button></form>
 <p class="muted">Median duration per UTC day, at most 60 days. A workflow run lasts from its first job's start to its last job's end, and counts only when GitHub reports it succeeded. Jobs count only when they succeeded. Hover a cell for its number of runs.</p>
+{{.Chart}}
 <h2>Workflows</h2>
 {{if .Workflows}}
 <div style="overflow-x:auto">
