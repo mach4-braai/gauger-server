@@ -168,8 +168,6 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 			perPage = 100
 		}
 		runs := []*github.Run{}
-		// Real GitHub never returns more than 1,000 runs for one query,
-		// however large total_count is.
 		capped := min(len(matched), 1000)
 		if start := (page - 1) * perPage; start < capped {
 			end := min(start+perPage, capped)

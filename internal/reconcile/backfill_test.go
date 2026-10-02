@@ -47,8 +47,6 @@ func TestBackfillQueuesCompletedRunsAcrossPages(t *testing.T) {
 		t.Fatalf("queued run tasks = %d, want %d (completed runs only)", queued, wantQueued)
 	}
 
-	// A second backfill over the same window must not queue duplicate run
-	// tasks: EnqueueTask upserts on (kind, key).
 	if _, err := r.backfillTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}
@@ -128,8 +126,6 @@ func TestBackfillSplitsWindowOverGitHubRunCap(t *testing.T) {
 	if len(runs) != 1040 {
 		t.Fatalf("runs = %d, want 1040 (splitting must not drop any)", len(runs))
 	}
-	// One short-circuited whole-range probe (total over the cap, so it
-	// stops after page 1) plus a full paginated listing per day once split.
 	if calls := gh.CallCount("/repos/acme/busy/actions/runs"); calls < 3 {
 		t.Fatalf("list calls = %d, want at least 3 (probe + per-day split)", calls)
 	}
@@ -154,10 +150,6 @@ func TestBackfillSingleDayOverCapLogsAndContinues(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A single day over the cap can't be split further; listRunsInRange
-	// pages all the way to GitHub's MaxRunsPerQuery (1,000) instead of
-	// stopping at the first page, so the backfill still queues 1,000 of
-	// the day's 1,100 runs.
 	var queued int
 	st.Pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE kind = 'run'`).Scan(&queued)
 	if queued != 1000 {

@@ -120,7 +120,6 @@ func TestBackfillQueuesTaskPerInstalledRepository(t *testing.T) {
 		t.Fatalf("backfill key = %q, want %q", key, wantSince+":acme/with-app")
 	}
 
-	// Submitting again the same day coalesces into the same task row.
 	req2 := httptest.NewRequest(http.MethodPost, "/setup/backfill", strings.NewReader(form.Encode()))
 	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec = httptest.NewRecorder()
