@@ -41,7 +41,7 @@ func TestRunTaskRepairsMissedJobDeliveries(t *testing.T) {
 	var jobs, steps, tasks int
 	st.Pool.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE run_id = 100 AND status = 'completed'`).Scan(&jobs)
 	st.Pool.QueryRow(ctx, `SELECT count(*) FROM steps`).Scan(&steps)
-	st.Pool.QueryRow(ctx, `SELECT count(*) FROM tasks`).Scan(&tasks)
+	st.Pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE kind = 'run'`).Scan(&tasks)
 	if jobs != 2 || steps != 2 || tasks != 0 {
 		t.Fatalf("jobs=%d steps=%d tasks=%d, want 2 2 0", jobs, steps, tasks)
 	}

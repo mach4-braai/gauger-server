@@ -5,8 +5,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"strconv"
-	"strings"
 
 	colmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"google.golang.org/protobuf/proto"
@@ -15,16 +13,6 @@ import (
 // ArtifactName is the fallback artifact gauger uploads for a job.
 func ArtifactName(checkRunID int64) string {
 	return fmt.Sprintf("gauger-%d", checkRunID)
-}
-
-// ArtifactJobID returns the check run ID in an ArtifactName.
-func ArtifactJobID(name string) (int64, bool) {
-	digits, ok := strings.CutPrefix(name, "gauger-")
-	if !ok {
-		return 0, false
-	}
-	id, err := strconv.ParseInt(digits, 10, 64)
-	return id, err == nil && id > 0
 }
 
 // ReadArtifact decodes the fallback artifact zip. Each file in it is one
