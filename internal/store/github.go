@@ -120,6 +120,15 @@ func (s *Store) SetInstallation(ctx context.Context, repo string, installation i
 	return s.InTx(ctx, func(tx pgx.Tx) error { return UpsertRepository(ctx, tx, repo, nil, installation) })
 }
 
+// InstalledRepositories returns every repository the App is installed on.
+func (s *Store) InstalledRepositories(ctx context.Context) ([]string, error) {
+	rows, err := s.Pool.Query(ctx, `SELECT full_name FROM repositories WHERE installation_id IS NOT NULL ORDER BY full_name`)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
 // statusRank orders GitHub statuses so an older event never moves a run or
 // job backwards.
 func statusRank(s string) int {
@@ -277,4 +286,11 @@ func (s *Store) RescheduleTask(ctx context.Context, kind, key string, attempts i
 
 func RunKey(runID int64, attempt int) string {
 	return strconv.FormatInt(runID, 10) + ":" + strconv.Itoa(attempt)
+}
+
+// BackfillKey identifies a repository's backfill task by its lookback start
+// date, so re-queueing the same backfill the same day coalesces into one
+// task instead of piling up duplicates.
+func BackfillKey(repo string, since time.Time) string {
+	return since.UTC().Format("2006-01-02") + ":" + repo
 }

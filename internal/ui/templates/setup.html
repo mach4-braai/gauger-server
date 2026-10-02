@@ -9,6 +9,12 @@
   <p>App <a href="{{.HTMLURL}}">{{.Slug}}</a> (ID {{.AppID}}) is configured.</p>
   <p><a href="{{.HTMLURL}}/installations/new">Install it on repositories</a> to start receiving webhooks.</p>
   {{end}}
+<h2>Backfill</h2>
+<p>Queue run and job history from GitHub for every repository the App is installed on.</p>
+<form method="post" action="/setup/backfill">
+<p><label>Days <input type="number" name="days" value="{{$.DefaultDays}}" min="1" required></label></p>
+<p><button type="submit">Queue backfill</button></p>
+</form>
 {{else}}
 <p>Create a GitHub App for this server. GitHub sets it up with <code>Actions: read</code> and <code>Metadata: read</code>, subscribes it to <code>workflow_run</code> and <code>workflow_job</code>, and points its webhook at this server's Funnel listener.</p>
 <form method="post" action="/setup/manifest">

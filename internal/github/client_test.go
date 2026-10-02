@@ -89,3 +89,21 @@ func TestNotConfigured(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNotConfigured", err)
 	}
 }
+
+func TestListRunsFiltersByCreatedDate(t *testing.T) {
+	gh := githubtest.New(t)
+	c := github.NewClient(gh.URL, github.StaticCredentials{C: gh.Credentials()})
+	inside := time.Date(2026, 7, 15, 10, 0, 0, 0, time.UTC)
+	outside := time.Date(2026, 6, 1, 10, 0, 0, 0, time.UTC)
+	gh.Runs["1:1"] = &github.Run{ID: 1, RunAttempt: 1, Status: "completed", CreatedAt: &inside}
+	gh.Runs["2:1"] = &github.Run{ID: 2, RunAttempt: 1, Status: "completed", CreatedAt: &outside}
+
+	runs, total, err := c.ListRuns(context.Background(), githubtest.Installation, "o/r",
+		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].ID != 1 || total != 1 {
+		t.Fatalf("runs = %+v total = %d, want only run 1 and total 1", runs, total)
+	}
+}

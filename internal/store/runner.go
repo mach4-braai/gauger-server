@@ -16,6 +16,7 @@ const (
 	KindRun      = "run"
 	KindJob      = "job"
 	KindArtifact = "artifact"
+	KindBackfill = "backfill"
 )
 
 // ArtifactGrace is how long after a job completes the fallback artifact

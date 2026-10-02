@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -81,6 +83,21 @@ func (s *Server) CallCount(p string) int {
 	return n
 }
 
+// parseCreatedRange parses a `created=YYYY-MM-DD..YYYY-MM-DD` filter into an
+// inclusive UTC time range.
+func parseCreatedRange(created string) (from, to time.Time, ok bool) {
+	start, end, found := strings.Cut(created, "..")
+	if !found {
+		return time.Time{}, time.Time{}, false
+	}
+	from, err1 := time.Parse("2006-01-02", start)
+	endDay, err2 := time.Parse("2006-01-02", end)
+	if err1 != nil || err2 != nil {
+		return time.Time{}, time.Time{}, false
+	}
+	return from, endDay.Add(24*time.Hour - time.Nanosecond), true
+}
+
 func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	s.Mu.Lock()
 	defer s.Mu.Unlock()
@@ -124,6 +141,40 @@ func (s *Server) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	rest := parts[4:]
 	switch {
+	case len(rest) == 1 && rest[0] == "runs":
+		from, to, ok := parseCreatedRange(r.URL.Query().Get("created"))
+		if !ok {
+			writeJSON(w, http.StatusUnprocessableEntity, map[string]string{"message": "bad created filter"})
+			return
+		}
+		var matched []*github.Run
+		for _, run := range s.Runs {
+			if run.CreatedAt == nil {
+				continue
+			}
+			c := run.CreatedAt.UTC()
+			if c.Before(from) || c.After(to) {
+				continue
+			}
+			matched = append(matched, run)
+		}
+		sort.Slice(matched, func(i, j int) bool { return matched[i].ID > matched[j].ID })
+		page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+		if page < 1 {
+			page = 1
+		}
+		perPage, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+		if perPage < 1 {
+			perPage = 100
+		}
+		runs := []*github.Run{}
+		capped := min(len(matched), 1000)
+		if start := (page - 1) * perPage; start < capped {
+			end := min(start+perPage, capped)
+			runs = matched[start:end]
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"total_count": len(matched), "workflow_runs": runs})
+		return
 	case len(rest) == 2 && rest[0] == "jobs":
 		for id, j := range s.Jobs {
 			if fmt.Sprint(id) == rest[1] {

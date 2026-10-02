@@ -3,6 +3,7 @@ package store_test
 import (
 	"context"
 	"math"
+	"slices"
 	"testing"
 	"time"
 
@@ -190,13 +191,13 @@ func TestDailyDurationsPerWorkflowAndJob(t *testing.T) {
 	run(5, day.AddDate(0, 0, 1), "completed", "success", job{"a", "completed", "success", 0, 100})
 	run(6, day, "completed", "failure", job{"a", "completed", "success", 0, 80}, job{"b", "completed", "failure", untimed, 0})
 
-	rows, err := st.DailyDurations(ctx, store.Filter{Since: day.AddDate(0, 0, -1)})
+	rows, err := st.DailyDurations(ctx, store.Filter{Since: day.AddDate(0, 0, -1)}, "day", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := map[string]store.DailyDuration{}
 	for _, r := range rows {
-		got[r.Job+" "+r.Day.UTC().Format("01-02")] = r
+		got[r.Job+" "+r.Bucket.UTC().Format("01-02")] = r
 	}
 	d0, d1 := day.Format("01-02"), day.AddDate(0, 0, 1).Format("01-02")
 	for key, want := range map[string]struct {
@@ -215,6 +216,118 @@ func TestDailyDurationsPerWorkflowAndJob(t *testing.T) {
 	}
 	if len(rows) != 5 {
 		t.Errorf("rows = %+v, want 5", rows)
+	}
+}
+
+func TestDailyDurationsWeekBucketMediansOverTheWholeWeek(t *testing.T) {
+	st := storetest.Open(t, 180*24*time.Hour)
+	ctx := context.Background()
+	monday := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -14)
+	for monday.Weekday() != time.Monday {
+		monday = monday.AddDate(0, 0, -1)
+	}
+	wednesday := monday.AddDate(0, 0, 2)
+
+	run := func(id int64, start time.Time, secs int) {
+		t.Helper()
+		end := start.Add(time.Duration(secs) * time.Second)
+		err := st.InTx(ctx, func(tx pgx.Tx) error {
+			if _, err := store.UpsertRun(ctx, tx, "acme/app", &github.Run{ID: id, RunAttempt: 1, Name: "CI", Status: "completed", Conclusion: "success"}); err != nil {
+				return err
+			}
+			return store.UpsertJob(ctx, tx, "acme/app", &github.Job{
+				ID: id, RunID: id, RunAttempt: 1, WorkflowName: "CI", Name: "build",
+				Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end,
+			})
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(1, monday.Add(9*time.Hour), 10)
+	run(2, monday.Add(10*time.Hour), 20)
+	run(3, wednesday.Add(9*time.Hour), 1000)
+
+	rows, err := st.DailyDurations(ctx, store.Filter{Since: monday.AddDate(0, 0, -7)}, "week", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found bool
+	for _, r := range rows {
+		if r.Job == "" && r.Bucket.Equal(monday) {
+			found = true
+			if r.Median != 20 || r.Runs != 3 {
+				t.Errorf("week bucket = %+v, want median 20 over 3 runs (raw [10,20,1000], not the average of per-day medians)", r)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no week bucket starting %s in %+v", monday, rows)
+	}
+}
+
+func TestDailyDurationsFiltersByWorkflowAndJob(t *testing.T) {
+	st := storetest.Open(t, 90*24*time.Hour)
+	ctx := context.Background()
+	day := time.Now().UTC().Truncate(24*time.Hour).AddDate(0, 0, -2).Add(10 * time.Hour)
+	at := func(secs int) *time.Time { x := day.Add(time.Duration(secs) * time.Second); return &x }
+	run := func(id int64, workflow string, jobs map[string]int) {
+		t.Helper()
+		err := st.InTx(ctx, func(tx pgx.Tx) error {
+			if _, err := store.UpsertRun(ctx, tx, "acme/app", &github.Run{ID: id, RunAttempt: 1, Name: workflow, Status: "completed", Conclusion: "success"}); err != nil {
+				return err
+			}
+			i := int64(0)
+			for name, secs := range jobs {
+				i++
+				if err := store.UpsertJob(ctx, tx, "acme/app", &github.Job{
+					ID: id*10 + i, RunID: id, RunAttempt: 1, WorkflowName: workflow, Name: name,
+					Status: "completed", Conclusion: "success", StartedAt: &day, CompletedAt: at(secs),
+				}); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	run(1, "CI", map[string]int{"a": 100, "b": 300})
+	run(2, "Deploy", map[string]int{"release": 50})
+
+	workflows, err := st.Workflows(ctx, "acme/app")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"CI", "Deploy"}; !slices.Equal(workflows, want) {
+		t.Errorf("Workflows = %v, want %v", workflows, want)
+	}
+
+	jobs, err := st.Jobs(ctx, "acme/app", "CI")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"a", "b"}; !slices.Equal(jobs, want) {
+		t.Errorf("Jobs = %v, want %v", jobs, want)
+	}
+
+	rows, err := st.DailyDurations(ctx, store.Filter{Since: day.AddDate(0, 0, -1)}, "day", "CI", "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]store.DailyDuration{}
+	for _, r := range rows {
+		got[r.Job] = r
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v, want exactly the CI workflow row and the CI/b job row", rows)
+	}
+	if r := got[""]; r.Workflow != "CI" || r.Median != 300 || r.Runs != 1 {
+		t.Errorf("workflow row = %+v, want CI median 300 over 1 run", r)
+	}
+	if r := got["b"]; r.Workflow != "CI" || r.Median != 300 || r.Runs != 1 {
+		t.Errorf("job row = %+v, want CI/b median 300 over 1 run", r)
 	}
 }
 

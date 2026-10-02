@@ -29,6 +29,8 @@ type UI struct {
 	DNSName string
 	// GitHubURL is the web origin, https://github.com unless testing.
 	GitHubURL string
+	// Wake is called after a backfill request adds work for the reconciler.
+	Wake func()
 
 	pages map[string]*template.Template
 }
@@ -50,6 +52,7 @@ func (u *UI) Handler() http.Handler {
 	mux.HandleFunc("GET /setup", u.setup)
 	mux.HandleFunc("POST /setup/manifest", u.setupManifest)
 	mux.HandleFunc("GET /setup/callback", u.setupCallback)
+	mux.HandleFunc("POST /setup/backfill", u.setupBackfill)
 	return mux
 }
 

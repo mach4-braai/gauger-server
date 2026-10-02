@@ -16,6 +16,7 @@ Self-hosted server and web UI that joins GitHub Actions webhook timings with [ga
 - Repairs missed deliveries from the REST API. Every run gets a check 10 minutes after its last unfinished event and a minute after it completes. The check stores the run attempt and all its jobs. This work lives in Postgres, so it survives a restart.
 - Spends at most 5,000 REST requests an hour per installation, and waits out `x-ratelimit-reset` and `retry-after`.
 - Accepts runner data on `:4318` only when `WhoIs` says the peer is `tag:gauger-ci` and the bearer token is a GitHub Actions OIDC token with `aud` `gauger-server`, an unexpired `exp` and the configured `repository_owner_id`. Each request is checked on its own, so gauger can switch tokens mid-job.
+- Backfills history from before the App was installed. A backfill task per repository lists completed runs with `GET /actions/runs?created=...` and queues a `run` task for each one's latest attempt; GitHub returns only the latest attempt, so earlier attempts of a re-run are not backfilled. `/setup` queues a backfill of the last N days (90 by default) for every repository with an installation. Running the same backfill twice adds no rows: runs, jobs and steps upsert on their IDs, and tasks upsert on `(kind, key)`.
 - Stores a job as `pending` on `start` or its first batch, then polls `GET /actions/jobs/{id}` with backoff until it completes and records the step timings. If the job completes without `done`, it looks for the `gauger-<check_run_id>` artifact until it appears or 7 days pass. When a run completes, it starts the same search for every completed job of the run without `done` or an ingested artifact, including jobs whose gauger never reached the server.
 - Joins both sources on `run_id`, `run_attempt` and `check_run_id`. Without `check_run_id`, it matches `runner.name` to the job that runner was running.
 - Keeps samples in daily partitions and drops a whole partition once it falls outside the retention window.
@@ -25,7 +26,7 @@ Self-hosted server and web UI that joins GitHub Actions webhook timings with [ga
 - **Recent jobs**, filtered by repository and days like the other reports, link to a job view with run, job and step timings from GitHub, a CPU and memory chart from gauger, and runner usage per step.
 - **Slow steps.** p50 and p95 duration per step name.
 - **Regressions.** Each day's median step duration per branch against the median of the 14 days before it.
-- **Daily timing.** Median duration per UTC day for each workflow and each job, one column per day. A workflow run lasts from its first job's start to its last job's end.
+- **Daily timing.** Median duration per bucket, day, week or month, for each workflow and each job, one column per bucket, with a bar chart above the tables. Filters narrow it to one workflow (one bar per job) or one job (one bar per bucket); changing the repository clears a workflow or job that does not exist in it. At most 60 buckets; weeks start Monday UTC. A workflow run lasts from its first job's start to its last job's end.
 - **Right-sizing.** Peak memory against `MemTotal` and CPU against `nproc` per step. These are runner-level values during the step's time window, not the step's own usage.
 - **Spend.** Job minutes, rounded up per job, times the rate for the runner label. Standard runners in public repositories and self-hosted runners are free. Rates default to GitHub's published prices; add larger runners with `GAUGER_RUNNER_RATES`.
 
@@ -60,6 +61,8 @@ The auth key is only read on first start. tsnet keeps the node key in the `state
 ### GitHub App
 
 Open `https://<host>.<tailnet>.ts.net/setup` from a device on the tailnet and create the App there. GitHub creates it from a manifest with `Actions: read` and `Metadata: read`, the `workflow_run` and `workflow_job` events, and the webhook URL `https://<host>.<tailnet>.ts.net:8443/webhooks/github` with a generated secret. The server stores the App ID, private key and webhook secret in Postgres. Then install the App on the repositories you want to measure.
+
+`/setup` also has a form to queue a backfill of the last N days (90 by default) for every repository with an installation, so reports show history from before the App existed.
 
 To bring your own App instead, set all three `GAUGER_GITHUB_*` App variables below.
 
