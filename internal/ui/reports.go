@@ -2,7 +2,9 @@ package ui
 
 import (
 	"fmt"
+	"hash/fnv"
 	"html/template"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -166,7 +168,153 @@ func (u *UI) daily(w http.ResponseWriter, r *http.Request) {
 			(*rows)[n-1].Cells[i] = dailyCell{Median: d.Median, Runs: d.Runs}
 		}
 	}
-	u.render(w, "daily", map[string]any{"Filter": form, "Days": days, "Workflows": workflows, "Jobs": jobs})
+	labels := make([]string, len(days))
+	for i, d := range days {
+		labels[i] = d.Format("01-02")
+	}
+	u.render(w, "daily", map[string]any{
+		"Filter": form, "Days": days, "Workflows": workflows, "Jobs": jobs,
+		"Chart": dailyChart(labels, workflows, workflowLabel(form.Repo == "")),
+	})
+}
+
+func workflowLabel(allRepos bool) func(dailyRow) string {
+	return func(row dailyRow) string {
+		if allRepos {
+			return row.Repository + " · " + row.Workflow
+		}
+		return row.Workflow
+	}
+}
+
+const (
+	dailyChartW, dailyChartH   = 960.0, 300.0
+	dailyPadL, dailyPadR       = 44.0, 10.0
+	dailyPadT, dailyPadB       = 10.0, 54.0
+	dailyGroupPad, dailyBarGap = 4.0, 2.0
+)
+
+var dailyPalette = []string{
+	"#0969da", "#8250df", "#1a7f37", "#bf3989", "#9a6700",
+	"#cf222e", "#116329", "#57606a", "#6639ba", "#0550ae",
+}
+
+func dailySeriesColor(label string) string {
+	h := fnv.New32a()
+	h.Write([]byte(label))
+	return dailyPalette[h.Sum32()%uint32(len(dailyPalette))]
+}
+
+// niceStep picks a round axis step (1/2/5 × a power of ten) that divides
+// max into roughly count ticks.
+func niceStep(max float64, count int) float64 {
+	if max <= 0 {
+		return 1
+	}
+	raw := max / float64(count)
+	mag := math.Pow(10, math.Floor(math.Log10(raw)))
+	switch norm := raw / mag; {
+	case norm <= 1:
+		return mag
+	case norm <= 2:
+		return 2 * mag
+	case norm <= 5:
+		return 5 * mag
+	default:
+		return 10 * mag
+	}
+}
+
+func fmtTick(v float64) string {
+	if v == math.Trunc(v) {
+		return strconv.FormatFloat(v, 'f', 0, 64)
+	}
+	return strconv.FormatFloat(v, 'f', 1, 64)
+}
+
+func plural(n int64) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// dailyChart draws a grouped SVG bar chart: one group per label, one bar
+// per row in each group, scaled to the row's median duration. seriesLabel
+// names a row for its legend entry, hover title and colour.
+func dailyChart(labels []string, rows []dailyRow, seriesLabel func(dailyRow) string) template.HTML {
+	if len(rows) == 0 || len(labels) == 0 {
+		return ""
+	}
+	var maxVal float64
+	for _, row := range rows {
+		for _, c := range row.Cells {
+			if c.Runs > 0 && c.Median > maxVal {
+				maxVal = c.Median
+			}
+		}
+	}
+	if maxVal <= 0 {
+		return ""
+	}
+	unit, scale := "s", 1.0
+	if maxVal >= 90 {
+		unit, scale = "min", 60.0
+	}
+	step := niceStep(maxVal/scale, 4)
+	axisMax := step * math.Ceil(maxVal/scale/step)
+
+	usableW := dailyChartW - dailyPadL - dailyPadR
+	usableH := dailyChartH - dailyPadT - dailyPadB
+	groupW := usableW / float64(len(labels))
+	barW := (groupW - 2*dailyGroupPad - float64(len(rows)-1)*dailyBarGap) / float64(len(rows))
+	if barW < 1 {
+		barW = 1
+	}
+	x := func(i int) float64 { return dailyPadL + float64(i)*groupW }
+	y := func(v float64) float64 { return dailyPadT + usableH - v/(axisMax*scale)*usableH }
+
+	seriesLabels := make([]string, len(rows))
+	colors := make([]string, len(rows))
+	for j, row := range rows {
+		seriesLabels[j] = seriesLabel(row)
+		colors[j] = dailySeriesColor(seriesLabels[j])
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %.0f %.0f" width="100%%" role="img">`, dailyChartW, dailyChartH)
+	for v := 0.0; v <= axisMax+step*0.001; v += step {
+		gy := y(v * scale)
+		fmt.Fprintf(&b, `<line x1="%.0f" x2="%.0f" y1="%.1f" y2="%.1f" stroke="#d0d7de"/><text x="2" y="%.1f" font-size="10" fill="#656d76">%s%s</text>`,
+			dailyPadL, dailyChartW-dailyPadR, gy, gy, gy+3, fmtTick(v), unit)
+	}
+	for i, l := range labels {
+		lx := x(i) + groupW/2
+		ly := dailyChartH - dailyPadB + 12
+		fmt.Fprintf(&b, `<text x="%.1f" y="%.0f" font-size="9" fill="#656d76" text-anchor="end" transform="rotate(-60 %.1f %.0f)">%s</text>`,
+			lx, ly, lx, ly, template.HTMLEscapeString(l))
+	}
+	for i, l := range labels {
+		for j, row := range rows {
+			c := row.Cells[i]
+			if c.Runs == 0 {
+				continue
+			}
+			bx := x(i) + dailyGroupPad + float64(j)*(barW+dailyBarGap)
+			bh := c.Median / (axisMax * scale) * usableH
+			by := dailyPadT + usableH - bh
+			fmt.Fprintf(&b, `<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" fill="%s"><title>%s · %s · %s · %d run%s</title></rect>`,
+				bx, by, barW, bh, colors[j],
+				template.HTMLEscapeString(seriesLabels[j]), template.HTMLEscapeString(l), fmtDuration(time.Duration(c.Median*float64(time.Second))),
+				c.Runs, plural(c.Runs))
+		}
+	}
+	b.WriteString(`</svg><div class="legend">`)
+	for j := range rows {
+		fmt.Fprintf(&b, `<span class="legend-item"><span class="swatch" style="background:%s"></span>%s</span>`, colors[j], template.HTMLEscapeString(seriesLabels[j]))
+	}
+	b.WriteString(`</div>`)
+	return template.HTML(b.String())
 }
 
 type spendRow struct {
