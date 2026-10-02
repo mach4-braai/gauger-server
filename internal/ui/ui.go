@@ -100,6 +100,11 @@ var funcs = template.FuncMap{
 		}
 		return ""
 	},
+	"workflowURL": workflowURL,
+	"runURL":      runURL,
+	"commitURL":   commitURL,
+	"branchURL":   branchURL,
+	"stepURL":     stepURL,
 }
 
 func optional(v *float64, f func(float64) string) string {

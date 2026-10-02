@@ -6,7 +6,7 @@
 <table>
 <tr><th>Step</th><th class="num">Runs</th><th class="num">p50</th><th class="num">p95</th></tr>
 {{range .Rows}}
-<tr><td>{{.Name}}</td><td class="num">{{.Runs}}</td><td class="num">{{secs .P50}}</td><td class="num">{{secs .P95}}</td></tr>
+<tr><td>{{if .JobHTMLURL}}<a href="{{stepURL .JobHTMLURL .StepNumber}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td><td class="num">{{.Runs}}</td><td class="num">{{secs .P50}}</td><td class="num">{{secs .P95}}</td></tr>
 {{else}}
 <tr><td colspan="4" class="muted">No completed steps in this window.</td></tr>
 {{end}}

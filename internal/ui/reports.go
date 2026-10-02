@@ -18,6 +18,39 @@ type filterForm struct {
 	Repos []string
 }
 
+// workflowURL builds the GitHub URL for a workflow's runs from the path
+// stored on its runs, stripping the ".github/workflows/" or "dynamic/"
+// prefix GitHub puts on it. Empty path means no link.
+func workflowURL(ghURL, repo, path string) string {
+	if path == "" {
+		return ""
+	}
+	file := strings.TrimPrefix(path, ".github/workflows/")
+	file = strings.TrimPrefix(file, "dynamic/")
+	return ghURL + "/" + repo + "/actions/workflows/" + file
+}
+
+func runURL(ghURL, repo string, runID int64, attempt int) string {
+	return fmt.Sprintf("%s/%s/actions/runs/%d/attempts/%d", ghURL, repo, runID, attempt)
+}
+
+func commitURL(ghURL, repo, sha string) string {
+	return fmt.Sprintf("%s/%s/commit/%s", ghURL, repo, sha)
+}
+
+func branchURL(ghURL, repo, branch string) string {
+	return fmt.Sprintf("%s/%s/tree/%s", ghURL, repo, branch)
+}
+
+// stepURL is the step's log, the job's html_url plus its step anchor.
+// Empty html_url means no link.
+func stepURL(htmlURL string, number int) string {
+	if htmlURL == "" {
+		return ""
+	}
+	return fmt.Sprintf("%s#step:%d:1", htmlURL, number)
+}
+
 func (u *UI) filter(r *http.Request, defaultDays int) (store.Filter, filterForm, error) {
 	days, err := strconv.Atoi(r.URL.Query().Get("days"))
 	if err != nil || days <= 0 || days > 3650 {
@@ -47,7 +80,7 @@ func (u *UI) jobs(w http.ResponseWriter, r *http.Request) {
 		u.fail(w, err)
 		return
 	}
-	u.render(w, "jobs", map[string]any{"Filter": form, "Rows": jobs})
+	u.render(w, "jobs", map[string]any{"Filter": form, "Rows": jobs, "GitHubURL": u.GitHubURL})
 }
 
 func (u *UI) job(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +103,7 @@ func (u *UI) job(w http.ResponseWriter, r *http.Request) {
 		u.fail(w, err)
 		return
 	}
-	u.render(w, "job", map[string]any{"Job": d, "Chart": chart(d, series)})
+	u.render(w, "job", map[string]any{"Job": d, "Chart": chart(d, series), "GitHubURL": u.GitHubURL})
 }
 
 func (u *UI) steps(w http.ResponseWriter, r *http.Request) {
@@ -101,7 +134,7 @@ func (u *UI) regressions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u.render(w, "regressions", map[string]any{
-		"Filter": form, "Rows": rows, "Ratio": ratio, "Min": minSecs, "BaselineDays": store.BaselineDays,
+		"Filter": form, "Rows": rows, "Ratio": ratio, "Min": minSecs, "BaselineDays": store.BaselineDays, "GitHubURL": u.GitHubURL,
 	})
 }
 
@@ -116,7 +149,7 @@ func (u *UI) sizing(w http.ResponseWriter, r *http.Request) {
 		u.fail(w, err)
 		return
 	}
-	u.render(w, "sizing", map[string]any{"Filter": form, "Rows": rows})
+	u.render(w, "sizing", map[string]any{"Filter": form, "Rows": rows, "GitHubURL": u.GitHubURL})
 }
 
 const maxDailyDays = 60
@@ -130,6 +163,8 @@ type dailyRow struct {
 	Repository string
 	Workflow   string
 	Job        string
+	Path       string
+	JobID      int64
 	Cells      []dailyCell
 }
 
@@ -159,14 +194,14 @@ func (u *UI) daily(w http.ResponseWriter, r *http.Request) {
 		}
 		n := len(*rows)
 		if n == 0 || (*rows)[n-1].Repository != d.Repository || (*rows)[n-1].Workflow != d.Workflow || (*rows)[n-1].Job != d.Job {
-			*rows = append(*rows, dailyRow{Repository: d.Repository, Workflow: d.Workflow, Job: d.Job, Cells: make([]dailyCell, len(days))})
+			*rows = append(*rows, dailyRow{Repository: d.Repository, Workflow: d.Workflow, Job: d.Job, Path: d.Path, JobID: d.JobID, Cells: make([]dailyCell, len(days))})
 			n++
 		}
 		if i := int(d.Day.Sub(first) / (24 * time.Hour)); i >= 0 && i < len(days) {
 			(*rows)[n-1].Cells[i] = dailyCell{Median: d.Median, Runs: d.Runs}
 		}
 	}
-	u.render(w, "daily", map[string]any{"Filter": form, "Days": days, "Workflows": workflows, "Jobs": jobs})
+	u.render(w, "daily", map[string]any{"Filter": form, "Days": days, "Workflows": workflows, "Jobs": jobs, "GitHubURL": u.GitHubURL})
 }
 
 type spendRow struct {

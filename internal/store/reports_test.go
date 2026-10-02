@@ -47,8 +47,12 @@ func TestSlowStepsPercentiles(t *testing.T) {
 	st := storetest.Open(t, 90*24*time.Hour)
 	s := &seed{t: t, st: st}
 	base := time.Now().Add(-24 * time.Hour)
+	var slowest int64
 	for i, secs := range []int{10, 20, 30, 40, 100} {
-		s.job("acme/app", "main", nil, base.Add(time.Duration(i)*time.Hour), map[string]time.Duration{"make": time.Duration(secs) * time.Second})
+		id := s.job("acme/app", "main", nil, base.Add(time.Duration(i)*time.Hour), map[string]time.Duration{"make": time.Duration(secs) * time.Second})
+		if secs == 100 {
+			slowest = id
+		}
 	}
 	s.job("acme/other", "main", nil, base, map[string]time.Duration{"make": time.Hour})
 
@@ -58,6 +62,9 @@ func TestSlowStepsPercentiles(t *testing.T) {
 	}
 	if len(rows) != 1 || rows[0].Runs != 5 || rows[0].P50 != 30 || math.Abs(rows[0].P95-88) > 1e-9 {
 		t.Fatalf("slow steps = %+v, want make with 5 runs, p50 30s, p95 88s", rows)
+	}
+	if rows[0].JobID != slowest || rows[0].StepNumber != 1 {
+		t.Fatalf("slow step job = %d step %d, want the slowest occurrence job %d step 1", rows[0].JobID, rows[0].StepNumber, slowest)
 	}
 }
 
@@ -69,6 +76,7 @@ func TestRegressionsComparePerBranchWithTheDaysBefore(t *testing.T) {
 		s.job("acme/app", "main", nil, today.AddDate(0, 0, -d), map[string]time.Duration{"test": 10 * time.Second})
 	}
 	s.job("acme/app", "main", nil, today, map[string]time.Duration{"test": 20 * time.Second})
+	slowest := s.job("acme/app", "main", nil, today, map[string]time.Duration{"test": 30 * time.Second})
 	s.job("acme/app", "dev", nil, today.AddDate(0, 0, -1), map[string]time.Duration{"test": 10 * time.Second})
 	s.job("acme/app", "dev", nil, today, map[string]time.Duration{"test": 40 * time.Second})
 
@@ -80,8 +88,11 @@ func TestRegressionsComparePerBranchWithTheDaysBefore(t *testing.T) {
 		t.Fatalf("regressions = %+v, want only main today (dev has too few baseline runs)", rows)
 	}
 	r := rows[0]
-	if r.Branch != "main" || r.Median != 20 || r.Baseline != 10 || r.BaseRuns != 5 || !r.Day.Equal(today.Truncate(24*time.Hour)) {
+	if r.Branch != "main" || r.Median != 25 || r.Baseline != 10 || r.BaseRuns != 5 || !r.Day.Equal(today.Truncate(24*time.Hour)) {
 		t.Fatalf("regression = %+v", r)
+	}
+	if r.JobID != slowest || r.StepNumber != 1 {
+		t.Fatalf("regression job = %d step %d, want the slowest occurrence job %d step 1", r.JobID, r.StepNumber, slowest)
 	}
 }
 
@@ -107,6 +118,19 @@ func TestSizingUsesRunnerSamplesInsideEachStep(t *testing.T) {
 	if _, err := st.InsertSamples(ctx, id, pts); err != nil {
 		t.Fatal(err)
 	}
+
+	start2 := start.Add(2 * time.Hour)
+	id2 := s.job("acme/app", "main", nil, start2, map[string]time.Duration{"compile": time.Minute})
+	id1 := runner.Identity{RunID: id2, RunAttempt: 1, CheckRunID: id2, Repository: "acme/app"}
+	pts2 := []runner.Point{
+		{Identity: id1, Metric: store.MetricMemoryLimit, Time: start2, Value: 8 << 30},
+		{Identity: id1, Metric: store.MetricCPUCount, Time: start2, Value: 4},
+		{Identity: id1, Metric: store.MetricMemoryUsage, Series: store.SeriesMemoryUsed, Time: start2.Add(10 * time.Second), Value: 1 << 30},
+	}
+	if _, err := st.InsertSamples(ctx, id2, pts2); err != nil {
+		t.Fatal(err)
+	}
+
 	rows, err := st.Sizing(ctx, store.Filter{Since: start.Add(-time.Hour)})
 	if err != nil {
 		t.Fatal(err)
@@ -118,6 +142,9 @@ func TestSizingUsesRunnerSamplesInsideEachStep(t *testing.T) {
 	if *r.PeakMemory != 6<<30 || *r.MemTotal != 8<<30 || *r.PeakCPU != 0.95 || *r.CPUCount != 4 || *r.Saturated != 0.5 {
 		t.Fatalf("sizing = mem %v/%v cpu %v x%v saturated %v; want the used memory and attribute-free CPU series inside the step only",
 			*r.PeakMemory, *r.MemTotal, *r.PeakCPU, *r.CPUCount, *r.Saturated)
+	}
+	if r.JobID != id || r.StepNumber != 1 {
+		t.Fatalf("sizing job = %d step %d, want the peak-memory occurrence job %d step 1", r.JobID, r.StepNumber, id)
 	}
 }
 
