@@ -267,3 +267,111 @@ func TestSpendRoundsEachJobUp(t *testing.T) {
 		t.Fatalf("spend = %+v, want 3 jobs and 2+1+2 minutes", groups)
 	}
 }
+
+// job builds a completed job with explicitly numbered steps, for tests
+// that need control over step numbers that seed.job's map can't give.
+func numberedJob(id int64, repo, branch, workflow, name string, start, end time.Time, number int, step string) *github.Job {
+	return &github.Job{ID: id, RunID: id, RunAttempt: 1, WorkflowName: workflow, Name: name, HeadBranch: branch,
+		Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end,
+		Steps: []github.Step{{Number: number, Name: step, Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end}}}
+}
+
+func TestSlowStepsTieBreakPicksOneOccurrence(t *testing.T) {
+	st := storetest.Open(t, 90*24*time.Hour)
+	ctx := context.Background()
+	start := time.Now().Add(-time.Hour)
+	end := start.Add(15 * time.Second)
+	jobs := []*github.Job{
+		numberedJob(9001, "acme/app", "main", "CI", "build", start, end, 3, "deploy"),
+		numberedJob(9002, "acme/app", "main", "CI", "build", start, end, 7, "deploy"),
+	}
+	for _, j := range jobs {
+		if err := st.InTx(ctx, func(tx pgx.Tx) error { return store.UpsertJob(ctx, tx, "acme/app", j) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rows, err := st.SlowSteps(ctx, store.Filter{Since: start.Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("slow steps = %+v, want one row for deploy", rows)
+	}
+	r := rows[0]
+	if (r.JobID != 9001 || r.StepNumber != 3) && (r.JobID != 9002 || r.StepNumber != 7) {
+		t.Fatalf("slow step job %d step %d, want a job and step from the same occurrence", r.JobID, r.StepNumber)
+	}
+}
+
+func TestRegressionsTieBreakPicksOneOccurrence(t *testing.T) {
+	st := storetest.Open(t, 90*24*time.Hour)
+	ctx := context.Background()
+	today := time.Now().UTC().Truncate(24 * time.Hour).Add(time.Hour)
+	for d := 1; d <= 5; d++ {
+		day := today.AddDate(0, 0, -d)
+		end := day.Add(10 * time.Second)
+		j := numberedJob(9100+int64(d), "acme/app", "main", "CI", "build", day, end, 1, "test")
+		if err := st.InTx(ctx, func(tx pgx.Tx) error { return store.UpsertJob(ctx, tx, "acme/app", j) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	end := today.Add(20 * time.Second)
+	jobs := []*github.Job{
+		numberedJob(9201, "acme/app", "main", "CI", "build", today, end, 4, "test"),
+		numberedJob(9202, "acme/app", "main", "CI", "build", today, end, 9, "test"),
+	}
+	for _, j := range jobs {
+		if err := st.InTx(ctx, func(tx pgx.Tx) error { return store.UpsertJob(ctx, tx, "acme/app", j) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rows, err := st.Regressions(ctx, store.Filter{Since: today.Add(-time.Hour)}, 1.25, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("regressions = %+v, want one row for today", rows)
+	}
+	r := rows[0]
+	if (r.JobID != 9201 || r.StepNumber != 4) && (r.JobID != 9202 || r.StepNumber != 9) {
+		t.Fatalf("regression job %d step %d, want a job and step from the same occurrence", r.JobID, r.StepNumber)
+	}
+}
+
+func TestSizingTieBreakPicksOneOccurrence(t *testing.T) {
+	st := storetest.Open(t, 90*24*time.Hour)
+	ctx := context.Background()
+	start := time.Now().Add(-time.Hour).Truncate(time.Second)
+	end := start.Add(time.Minute)
+	ids := []struct {
+		id     int64
+		number int
+	}{{9301, 2}, {9302, 5}}
+	for _, j := range ids {
+		job := numberedJob(j.id, "acme/app", "main", "CI", "build", start, end, j.number, "compile")
+		if err := st.InTx(ctx, func(tx pgx.Tx) error { return store.UpsertJob(ctx, tx, "acme/app", job) }); err != nil {
+			t.Fatal(err)
+		}
+		id0 := runner.Identity{RunID: j.id, RunAttempt: 1, CheckRunID: j.id, Repository: "acme/app"}
+		pts := []runner.Point{
+			{Identity: id0, Metric: store.MetricMemoryUsage, Series: store.SeriesMemoryUsed, Time: start.Add(10 * time.Second), Value: 4 << 30},
+		}
+		if _, err := st.InsertSamples(ctx, j.id, pts); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	rows, err := st.Sizing(ctx, store.Filter{Since: start.Add(-time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("sizing rows = %+v, want one row for compile", rows)
+	}
+	r := rows[0]
+	if (r.JobID != 9301 || r.StepNumber != 2) && (r.JobID != 9302 || r.StepNumber != 5) {
+		t.Fatalf("sizing job %d step %d, want a job and step from the same occurrence", r.JobID, r.StepNumber)
+	}
+}
