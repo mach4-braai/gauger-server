@@ -335,10 +335,13 @@ func (c *Client) RepoInstallation(ctx context.Context, repo string) (int64, erro
 const MaxRunsPerQuery = 1000
 
 // ListRuns returns the workflow runs created in [from, to], GitHub's
-// inclusive date range, and the query's total_count. When total_count is
-// over MaxRunsPerQuery it stops after the first page, since GitHub never
-// returns more for this query; the caller narrows the range and asks again.
-func (c *Client) ListRuns(ctx context.Context, inst int64, repo string, from, to time.Time) ([]Run, int, error) {
+// inclusive date range, and the query's total_count. GitHub never returns
+// more than MaxRunsPerQuery runs for one query, however large total_count
+// is. When stopOverCap is true, ListRuns stops after the first page once it
+// sees total_count is over MaxRunsPerQuery, since a caller narrowing the
+// range would throw the rest away; pass false to page all the way to
+// MaxRunsPerQuery when the range can't be narrowed any further.
+func (c *Client) ListRuns(ctx context.Context, inst int64, repo string, from, to time.Time, stopOverCap bool) ([]Run, int, error) {
 	owner, name, err := splitRepo(repo)
 	if err != nil {
 		return nil, 0, err
@@ -359,7 +362,8 @@ func (c *Client) ListRuns(ctx context.Context, inst int64, repo string, from, to
 			total = out.TotalCount
 		}
 		runs = append(runs, out.WorkflowRuns...)
-		if len(out.WorkflowRuns) < 100 || len(runs) >= total || total > MaxRunsPerQuery {
+		if len(out.WorkflowRuns) < 100 || len(runs) >= total || len(runs) >= MaxRunsPerQuery ||
+			(stopOverCap && total > MaxRunsPerQuery) {
 			return runs, total, nil
 		}
 	}

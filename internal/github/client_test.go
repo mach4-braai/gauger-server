@@ -99,7 +99,7 @@ func TestListRunsFiltersByCreatedDate(t *testing.T) {
 	gh.Runs["2:1"] = &github.Run{ID: 2, RunAttempt: 1, Status: "completed", CreatedAt: &outside}
 
 	runs, total, err := c.ListRuns(context.Background(), githubtest.Installation, "o/r",
-		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC))
+		time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 7, 31, 0, 0, 0, 0, time.UTC), true)
 	if err != nil {
 		t.Fatal(err)
 	}

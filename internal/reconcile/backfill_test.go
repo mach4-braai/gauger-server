@@ -136,7 +136,7 @@ func TestBackfillSplitsWindowOverGitHubRunCap(t *testing.T) {
 }
 
 func TestBackfillSingleDayOverCapLogsAndContinues(t *testing.T) {
-	r, gh, _ := setup(t)
+	r, gh, st := setup(t)
 	ctx := context.Background()
 	repo := "acme/busiest"
 	today := time.Now().UTC()
@@ -149,14 +149,18 @@ func TestBackfillSingleDayOverCapLogsAndContinues(t *testing.T) {
 		}
 	}
 
-	runs, err := r.listRunsInRange(ctx, githubtest.Installation, repo, today, today)
-	if err != nil {
+	task := store.Task{Kind: store.KindBackfill, Key: store.BackfillKey(repo, today), Repository: repo}
+	if _, err := r.backfillTask(ctx, task); err != nil {
 		t.Fatal(err)
 	}
-	// A single day over the cap can't be split further, so listRunsInRange
-	// logs a warning and uses whatever ListRuns already fetched: one page,
-	// since ListRuns itself stops once total_count is over the cap.
-	if len(runs) != 100 {
-		t.Fatalf("runs = %d, want 100 (one page, logged and used as-is)", len(runs))
+
+	// A single day over the cap can't be split further; listRunsInRange
+	// pages all the way to GitHub's MaxRunsPerQuery (1,000) instead of
+	// stopping at the first page, so the backfill still queues 1,000 of
+	// the day's 1,100 runs.
+	var queued int
+	st.Pool.QueryRow(ctx, `SELECT count(*) FROM tasks WHERE kind = 'run'`).Scan(&queued)
+	if queued != 1000 {
+		t.Fatalf("queued run tasks = %d, want 1000 (GitHub's hard cap for one day)", queued)
 	}
 }

@@ -54,19 +54,21 @@ func (r *Reconciler) backfillTask(ctx context.Context, t store.Task) (time.Durat
 
 // listRunsInRange lists runs in [from, to], splitting the range in half by
 // day when GitHub's total_count for it is over github.MaxRunsPerQuery, down
-// to a single day. A single day that alone exceeds the cap is logged and
-// used as returned: GitHub never returns more than github.MaxRunsPerQuery
-// runs for one query no matter how the range is split further.
+// to a single day. A multi-day call stops after one page once it is over the
+// cap, since the result gets thrown away anyway; a single-day call that
+// can't be split further pages all the way to github.MaxRunsPerQuery and
+// logs a warning if even that doesn't cover total_count.
 func (r *Reconciler) listRunsInRange(ctx context.Context, inst int64, repo string, from, to time.Time) ([]github.Run, error) {
-	runs, total, err := r.GitHub.ListRuns(ctx, inst, repo, from, to)
+	days := int(to.Sub(from).Hours()/24) + 1
+	singleDay := days <= 1
+	runs, total, err := r.GitHub.ListRuns(ctx, inst, repo, from, to, !singleDay)
 	if err != nil {
 		return nil, err
 	}
 	if total <= github.MaxRunsPerQuery {
 		return runs, nil
 	}
-	days := int(to.Sub(from).Hours()/24) + 1
-	if days <= 1 {
+	if singleDay {
 		slog.Warn("backfill day exceeds GitHub's run cap; some runs were skipped",
 			"repository", repo, "date", from.Format("2006-01-02"), "total_count", total)
 		return runs, nil
