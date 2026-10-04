@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"runtime/debug"
 	"syscall"
 
 	"github.com/mach4-braai/gauger-server/internal/config"
@@ -22,36 +21,6 @@ import (
 // version is set at link time with -ldflags "-X main.version=...".
 var version string
 
-func resolveVersion() string {
-	if version != "" {
-		return version
-	}
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return "dev"
-	}
-	var rev string
-	var dirty bool
-	for _, s := range info.Settings {
-		switch s.Key {
-		case "vcs.revision":
-			rev = s.Value
-		case "vcs.modified":
-			dirty = s.Value == "true"
-		}
-	}
-	if rev == "" {
-		return "dev"
-	}
-	if len(rev) > 12 {
-		rev = rev[:12]
-	}
-	if dirty {
-		rev += "-dirty"
-	}
-	return rev
-}
-
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 	if err := run(); err != nil {
@@ -61,7 +30,10 @@ func main() {
 }
 
 func run() error {
-	v := resolveVersion()
+	v := version
+	if v == "" {
+		v = "dev"
+	}
 	slog.Info("starting", "version", v)
 	cfg, err := config.Load()
 	if err != nil {
