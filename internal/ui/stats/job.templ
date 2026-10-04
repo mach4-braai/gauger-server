@@ -1,0 +1,146 @@
+package stats
+
+import (
+	"strconv"
+
+	"github.com/mach4-braai/gauger-server/internal/ui/chart"
+)
+
+templ jobPage(v jobView) {
+	<header class="page-header rise">
+		<div>
+			<h1 class="page-title">
+				{ v.Repository }
+				<span class="muted">·</span>
+				if v.WorkflowURL != "" {
+					<a href={ v.WorkflowURL }>{ v.Workflow }</a>
+				} else {
+					{ v.Workflow }
+				}
+				<span class="muted">·</span>
+				{ v.Name }
+			</h1>
+			<p class="page-description">
+				<a href={ v.RunURL }>{ v.RunLabel }</a>
+				if v.Branch != "" {
+					on <code><a href={ v.BranchURL }>{ v.Branch }</a></code>
+				}
+				if v.SHA != "" {
+					at <code><a href={ v.CommitURL }>{ v.SHA }</a></code>
+				}
+				if v.Event != "" {
+					triggered by { v.Event }
+				}
+				if v.JobURL != "" {
+					<span class="muted">·</span>
+					<a href={ v.JobURL }>View on GitHub</a>
+				}
+			</p>
+		</div>
+	</header>
+	@card("Job", "") {
+		<div class="kv">
+			for _, f := range v.Facts {
+				<div class="kv-item" id={ "fact-" + f.ID }>
+					<div class="kv-key">{ f.Key }</div>
+					<div class="kv-value">{ f.Value }</div>
+				</div>
+			}
+		</div>
+		<p class="micro" id="gauger-status" style="margin-top: 14px">{ v.Status }</p>
+	}
+	@card("Timeline", "Queue wait, then each step, on one clock. Click a step for its usage and log.") {
+		@chart.Timeline(v.Timeline)
+	}
+	for _, c := range v.Charts {
+		@card(c.Title, c.Description) {
+			@chart.Trace(c.Trace)
+			<div style="margin-top: 12px">
+				@chart.Legend(c.Legend)
+			</div>
+		}
+	}
+	@card("Steps", "CPU and memory columns are runner-level values during each step's time window, not the step's own usage.") {
+		<div class="table-wrap">
+			<table class="table" data-dense="true" id="steps">
+				<thead>
+					<tr>
+						<th data-align="right">#</th>
+						<th>Step</th>
+						<th>Result</th>
+						<th>Started (UTC)</th>
+						<th data-align="right">Duration</th>
+						<th data-align="right">Peak memory</th>
+						<th data-align="right">of MemTotal</th>
+						<th data-align="right">Peak CPU (cores)</th>
+						<th data-align="right">Time ≥90% CPU</th>
+						<th data-align="right">Samples</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, s := range v.Steps {
+						<tr
+							id={ "step-" + strconv.Itoa(s.Number) }
+							if s.Selected {
+								data-selected="true"
+							}
+						>
+							<td data-align="right" data-col="number">{ strconv.Itoa(s.Number) }</td>
+							<td data-col="name"><a href={ s.Href } data-nav>{ s.Name }</a></td>
+							<td data-col="result">{ s.Result }</td>
+							<td data-col="started">{ s.Started }</td>
+							<td data-align="right" data-col="duration">{ s.Duration }</td>
+							<td data-align="right" data-col="peak-memory">{ s.PeakMemory }</td>
+							<td data-align="right" data-col="of-memtotal">{ s.OfMemTotal }</td>
+							<td data-align="right" data-col="peak-cpu">{ s.PeakCPU }</td>
+							<td data-align="right" data-col="saturated">{ s.Saturated }</td>
+							<td data-align="right" data-col="samples">{ s.Samples }</td>
+						</tr>
+					}
+					if len(v.Steps) == 0 {
+						<tr><td colspan="10" class="muted">No step timings yet.</td></tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+	if v.Drawer != nil {
+		@jobDrawerPanel(v.Drawer)
+	}
+}
+
+templ jobDrawerPanel(d *jobDrawer) {
+	<a class="drawer-scrim" href={ d.Close } data-nav aria-label="Close"></a>
+	<aside id="step-drawer" class="drawer" aria-label={ "Step " + strconv.Itoa(d.Number) }>
+		<header class="drawer-header">
+			<div class="drawer-titles">
+				<div class="drawer-title">{ d.Name }</div>
+				<div class="drawer-subtitle">
+					Step { strconv.Itoa(d.Number) }
+					if d.Tone != "" {
+						<span class="badge" data-tone={ d.Tone }>{ d.Result }</span>
+					} else {
+						<span class="badge">{ d.Result }</span>
+					}
+				</div>
+			</div>
+			<a class="btn" data-variant="ghost" data-size="sm" href={ d.Close } data-nav>Close</a>
+		</header>
+		<div class="drawer-body">
+			<div class="kv">
+				for _, f := range d.Facts {
+					<div class="kv-item" id={ "drawer-" + f.ID }>
+						<div class="kv-key">{ f.Key }</div>
+						<div class="kv-value">{ f.Value }</div>
+					</div>
+				}
+			</div>
+			<p class="micro">CPU and memory are the runner's values during this step, not the step's own usage.</p>
+			if d.LogURL != "" {
+				<div>
+					<a class="btn" href={ d.LogURL }>View log on GitHub</a>
+				</div>
+			}
+		</div>
+	</aside>
+}

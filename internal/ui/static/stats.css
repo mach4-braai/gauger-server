@@ -1468,6 +1468,112 @@ select.input {
 }
 
 /* ==========================================================================
+   Timeline and trace (job page)
+   ========================================================================== */
+.timeline {
+	position: relative;
+	font-size: 12.5px;
+	user-select: none;
+}
+
+.timeline-axis,
+.timeline-row {
+	display: grid;
+	grid-template-columns: minmax(96px, 220px) 1fr;
+	column-gap: 12px;
+	align-items: center;
+}
+
+.timeline-axis {
+	height: 20px;
+	color: var(--chart-axis);
+	font-family: var(--font-mono);
+	font-size: 10.5px;
+}
+
+.timeline-lane {
+	position: relative;
+	min-width: 0;
+	height: 100%;
+}
+
+.timeline-row {
+	height: 28px;
+	border-top: 1px solid var(--line-1);
+}
+
+.timeline-row.hover {
+	background: var(--hover);
+}
+
+.timeline-label {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--ink-2);
+}
+
+a.timeline-label:hover {
+	color: var(--ink-1);
+}
+
+.timeline-tick {
+	position: absolute;
+	top: 4px;
+	transform: translateX(-50%);
+}
+
+.timeline-tick:first-child {
+	transform: none;
+}
+
+.timeline-grid span {
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	width: 1px;
+	background: var(--chart-grid);
+}
+
+.timeline-span {
+	position: absolute;
+	top: 6px;
+	bottom: 6px;
+	min-width: 3px;
+	border-radius: 3px;
+}
+
+a.timeline-span:hover {
+	filter: brightness(1.15);
+}
+
+.timeline-tooltip {
+	top: calc(100% - 2px);
+}
+
+.timeline-empty {
+	padding: 24px 0;
+	text-align: center;
+	color: var(--ink-3);
+}
+
+.trace {
+	position: relative;
+}
+
+.trace-mark {
+	position: absolute;
+	width: 0;
+	border-left: 1px dashed var(--line-4);
+	pointer-events: none;
+}
+
+/* A drawer patched into the page sits inside the panel, under the topbar. */
+.page .drawer {
+	top: calc(var(--topbar-h) + 8px);
+}
+
+/* ==========================================================================
    Drawer (right-side sheet)
    ========================================================================== */
 .drawer {

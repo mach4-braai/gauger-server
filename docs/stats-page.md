@@ -20,14 +20,14 @@ These are the metrics gauger sends, with their attributes:
 
 | Metric | Series | Read by a report today |
 |---|---|---|
-| `system.cpu.utilization` | total, and 7 `cpu.mode` values (user, system, iowait, steal, nice, interrupt, idle) | Total only |
-| `system.memory.usage` | `used`, `cached`, `buffers`, `free` | `used` only |
+| `system.cpu.utilization` | total, and 7 `cpu.mode` values (user, system, iowait, steal, nice, interrupt, idle) | Total, and every mode but idle on the job page |
+| `system.memory.usage` | `used`, `cached`, `buffers`, `free` | `used`, `cached` and `buffers` (job page) |
 | `system.memory.limit`, `system.cpu.logical.count` | one | Yes |
 | `system.linux.memory.available` | one | No |
-| `system.disk.io`, `system.disk.operations` | read and write per device (`nvme0n1`, `sda`) | No |
-| `system.network.io` | 252 series, per interface and direction | No |
+| `system.disk.io`, `system.disk.operations` | read and write per device (`nvme0n1`, `sda`) | `system.disk.io` on the job page |
+| `system.network.io` | 252 series, per interface and direction | Job page, per interface without `lo` and `tailscale0` |
 
-Half of what gauger collects isn't on any page yet: the CPU mode split, disk and network traffic, and the memory states other than `used`.
+The job page reads most of this. What no page reads yet: `free` memory, `system.linux.memory.available` and `system.disk.operations`.
 
 ## What the page could show
 

@@ -47,10 +47,11 @@ This contract is shared with [gauger](https://github.com/mach4-braai/gauger). Ch
 - The fallback artifact `gauger-<check_run_id>` holds one file per unsent batch, each an `ExportMetricsServiceRequest` in protobuf.
 - The reports read these metric shapes. A client that sends another shape gets wrong numbers, so changing one is a contract change.
   - Every point of one sample has the same timestamp. Sample counts are distinct timestamps.
-  - `system.cpu.utilization`: one point per sample with no attributes, the busy share of all CPUs from 0 to 1. Peak CPU is its `max`, and time at ≥90% CPU is the share of its points at or above 0.9. Points that carry attributes, such as `cpu.mode`, are stored but not read.
-  - `system.memory.usage` with `system.memory.state=used`, in bytes. Peak memory is its `max`.
+  - `system.cpu.utilization`: one point per sample with no attributes, the busy share of all CPUs from 0 to 1. Peak CPU is its `max`, and time at ≥90% CPU is the share of its points at or above 0.9. Points with a `cpu.mode` attribute (`user`, `system`, `iowait`, `steal`, `nice`, `interrupt`) are the same share split by mode. The job page stacks them.
+  - `system.memory.usage` with `system.memory.state=used`, in bytes. Peak memory is its `max`. The job page also stacks the `cached` and `buffers` states.
   - `system.memory.limit`: `MemTotal` in bytes.
   - `system.cpu.logical.count`: `nproc`.
+  - `system.disk.io` with `disk.io.direction` (`read` or `write`) and `system.device`, and `system.network.io` with `network.io.direction` (`receive` or `transmit`) and `network.interface.name`: cumulative byte counters. The job page plots their rate per second and leaves out `lo` and `tailscale0`.
   - Other metrics are stored as sent.
 
 ## Self-hosting
