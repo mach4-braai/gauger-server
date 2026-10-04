@@ -1,0 +1,205 @@
+package stats
+
+import (
+	"github.com/mach4-braai/gauger-server/internal/store"
+	"github.com/mach4-braai/gauger-server/internal/ui/chart"
+)
+
+templ resourcesIcon() {
+	@icon() {
+		<rect width="16" height="16" x="4" y="4" rx="2"></rect>
+		<rect width="6" height="6" x="9" y="9" rx="1"></rect>
+		<path d="M15 2v2"></path>
+		<path d="M15 20v2"></path>
+		<path d="M2 15h2"></path>
+		<path d="M2 9h2"></path>
+		<path d="M20 15h2"></path>
+		<path d="M20 9h2"></path>
+		<path d="M9 2v2"></path>
+		<path d="M9 20v2"></path>
+	}
+}
+
+func (v resourcesView) trendLabel() string {
+	if v.Trend.Step == chart.Hour {
+		return "Per hour, UTC"
+	}
+	return "Per day, UTC"
+}
+
+templ resourcesPage(v resourcesView, by string) {
+	@pageHeader("Resources", v.Description)
+	<div class="row">
+		<span class="micro">Group by</span>
+		<div class="segmented" role="radiogroup" aria-label="Group by" data-size="sm">
+			<label class="segmented-option">
+				<input type="radio" form={ chart.Form } name="by" value={ store.ByLabel } checked?={ by == store.ByLabel }/>
+				Label
+			</label>
+			<label class="segmented-option">
+				<input type="radio" form={ chart.Form } name="by" value={ store.ByWorkflow } checked?={ by == store.ByWorkflow }/>
+				Workflow
+			</label>
+		</div>
+	</div>
+	@statGrid(170) {
+		for _, t := range v.Tiles {
+			@stat(t)
+		}
+	}
+	if v.Empty != nil {
+		@card("", "") {
+			<div id="resources-empty">
+				@emptyState(v.Empty.Title, v.Empty.Hint)
+			</div>
+		}
+	} else {
+		if v.Note != "" {
+			<p class="micro" id="resources-note">{ v.Note }</p>
+		}
+		@card("CPU by mode", "Mean share of all CPUs by mode, stacked, per "+v.GroupName+". Idle is left out. Each table cell is the mean, then the peak.") {
+			@chart.Chart(v.CPU)
+			<div style="margin-top: 12px">
+				@chart.Legend(v.CPULegend)
+			</div>
+			<div style="margin-top: 16px">
+				@statGrid(240) {
+					for _, t := range v.CPUCallout {
+						@stat(t)
+					}
+				}
+			</div>
+			<div class="table-wrap" style="margin-top: 16px">
+				<table class="table" data-dense="true" id="resources-cpu">
+					<thead>
+						<tr>
+							<th>{ v.GroupName }</th>
+							<th data-align="right">Jobs</th>
+							for _, col := range v.CPUColumns {
+								<th data-align="right">{ col }</th>
+							}
+						</tr>
+					</thead>
+					<tbody>
+						for _, row := range v.CPURows {
+							<tr data-group={ row.Group }>
+								<td data-col="group">{ row.Group }</td>
+								<td data-align="right" data-col="jobs">{ row.Jobs }</td>
+								for _, c := range row.Cells {
+									@resourcesCellView(c)
+								}
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+		@card("Memory headroom", "Mean and peak used memory against system.memory.limit, per "+v.GroupName+". Each table cell is the mean, then the peak.") {
+			@chart.Chart(v.Memory)
+			<div style="margin-top: 12px">
+				@chart.Legend(v.MemoryLegend)
+			</div>
+			<div class="table-wrap" style="margin-top: 16px">
+				<table class="table" data-dense="true" id="resources-memory">
+					<thead>
+						<tr>
+							<th>{ v.GroupName }</th>
+							<th data-align="right">Jobs</th>
+							<th data-align="right">Limit</th>
+							<th data-align="right">Peak of limit</th>
+							<th data-align="right">Mean of limit</th>
+							<th data-align="right">Lowest available</th>
+							for _, state := range resourcesMemoryStates {
+								<th data-align="right">{ state }</th>
+							}
+						</tr>
+					</thead>
+					<tbody>
+						for _, row := range v.MemoryRows {
+							<tr data-group={ row.Group }>
+								<td data-col="group">{ row.Group }</td>
+								<td data-align="right" data-col="jobs">{ row.Jobs }</td>
+								<td data-align="right" data-col="limit">{ row.Limit }</td>
+								<td data-align="right" data-col="peak-share">{ row.PeakShare }</td>
+								<td data-align="right" data-col="mean-share">{ row.MeanShare }</td>
+								<td data-align="right" data-col="available">{ row.MinAvailable }</td>
+								for _, c := range row.Cells {
+									@resourcesCellView(c)
+								}
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+		@card("Disk and network", "Bytes moved per device and interface in the range, per "+v.GroupName+". Loopback and tailscale0 are left out.") {
+			@resourcesTrafficTable("resources-disk", v.GroupName, "Device", "Read", "Written", v.Disk)
+			<div style="margin-top: 16px">
+				@resourcesTrafficTable("resources-network", v.GroupName, "Interface", "In", "Out", v.Network)
+			</div>
+		}
+		<div class="grid grid-2">
+			@card("Top jobs by disk bytes", "Read plus written.") {
+				if len(v.TopDisk) == 0 {
+					@emptyState("No disk traffic", "")
+				} else {
+					<div id="resources-top-disk">
+						@chart.BarList(v.TopDisk, 0)
+					</div>
+				}
+			}
+			@card("Top jobs by network bytes", "In plus out.") {
+				if len(v.TopNetwork) == 0 {
+					@emptyState("No network traffic", "")
+				} else {
+					<div id="resources-top-network">
+						@chart.BarList(v.TopNetwork, 0)
+					</div>
+				}
+			}
+		</div>
+		@card("CPU and memory over time", v.trendLabel()+". Mean CPU use, and mean used memory over the mean limit, of every sample in the bucket.") {
+			@chart.TimeChart(v.Trend)
+			<div style="margin-top: 12px">
+				@chart.Legend(v.TrendLegend)
+			</div>
+		}
+	}
+}
+
+templ resourcesCellView(c resourcesCell) {
+	<td data-align="right" data-col={ c.Col }>
+		<span class="mean">{ c.Mean }</span>
+		if c.Peak != "" {
+			<span class="micro peak">peak { c.Peak }</span>
+		}
+	</td>
+}
+
+templ resourcesTrafficTable(id, group, name, in, out string, rows []resourcesTrafficRow) {
+	<div class="table-wrap">
+		<table class="table" data-dense="true" id={ id }>
+			<thead>
+				<tr>
+					<th>{ group }</th>
+					<th>{ name }</th>
+					<th data-align="right">{ in }</th>
+					<th data-align="right">{ out }</th>
+				</tr>
+			</thead>
+			<tbody>
+				for _, r := range rows {
+					<tr data-group={ r.Group }>
+						<td data-col="group">{ r.Group }</td>
+						<td data-col="name">{ r.Name }</td>
+						<td data-align="right" data-col="in">{ r.In }</td>
+						<td data-align="right" data-col="out">{ r.Out }</td>
+					</tr>
+				}
+				if len(rows) == 0 {
+					<tr><td colspan="4" class="muted">None reported.</td></tr>
+				}
+			</tbody>
+		</table>
+	</div>
+}

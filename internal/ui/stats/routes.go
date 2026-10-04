@@ -14,4 +14,5 @@ var routes = []route{
 	{"/stats/capacity", "Capacity", (*Server).capacity},
 	{"/stats/failures", "Failures", (*Server).failures},
 	{"/stats/waste", "Waste", (*Server).waste},
+	{"/stats/resources", "Resources", (*Server).resources},
 }
