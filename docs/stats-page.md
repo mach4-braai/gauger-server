@@ -18,16 +18,16 @@ All the numbers below come from read-only queries on the live database on 2026-1
 
 These are the metrics gauger sends, with their attributes:
 
-| Metric | Series | Read by a report today |
+| Metric | Series | Read by a page today |
 |---|---|---|
 | `system.cpu.utilization` | total, and 7 `cpu.mode` values (user, system, iowait, steal, nice, interrupt, idle) | Total, and every mode but idle on the job page |
 | `system.memory.usage` | `used`, `cached`, `buffers`, `free` | `used`, `cached` and `buffers` (job page) |
 | `system.memory.limit`, `system.cpu.logical.count` | one | Yes |
-| `system.linux.memory.available` | one | No |
+| `system.linux.memory.available` | one | Resources, as the lowest value per group |
 | `system.disk.io`, `system.disk.operations` | read and write per device (`nvme0n1`, `sda`) | `system.disk.io` on the job page |
 | `system.network.io` | 252 series, per interface and direction | Job page, per interface without `lo` and `tailscale0` |
 
-The job page reads most of this. What no page reads yet: `free` memory, `system.linux.memory.available` and `system.disk.operations`.
+The job and Resources pages read most of this. What no page reads yet: `free` memory and `system.disk.operations`.
 
 ## What the page could show
 
@@ -137,18 +137,30 @@ This only covers jobs with gauger samples, so the page has to say so.
 
 - **Rendering.** The dashboard lives at `/stats/<page>`, rendered by Go with templ. Charts are SVG drawn on the server, ported from omp's `Chart.tsx`, with each slot's tooltip rendered on the server too. Datastar, one vendored 33 KB file, swaps the page in place when a filter changes and shows tooltips on hover. With JavaScript off, the filter form still works with a full reload.
 - **Queries.** At 2,700 jobs and 25,000 steps, live aggregate queries return in milliseconds, so pages query `runs`, `jobs`, `steps` and `samples` directly. If that changes, add a `daily_rollups` table that the maintenance loop fills, keyed by day, repository, workflow path, job and label. That's the same approach omp takes with `stats.db`.
-- **Page shape.** One page per view, like omp's sidebar, sharing the range, repository and event filters. The Overview at `/stats/` has the headline cards from section 1 and runs per bucket stacked by conclusion. Each later page replaces one of the template reports, which redirects to it.
+- **Page shape.** One page per view, like omp's sidebar, sharing the range, repository and event filters. The Overview at `/stats/` has the headline cards from section 1. The old template reports are gone, and `/`, `/jobs/{id}`, `/steps`, `/regressions`, `/daily`, `/sizing` and `/spend` redirect to their dashboard page.
 - **Local preview.** `mise run dashboard -seed` serves the dashboard on 127.0.0.1 from `GAUGER_DATABASE_URL`, filled with the test fixtures when the database is empty.
 
-## Suggested first slice
+## Where each section landed
 
-1. Headline cards, time series and breakdowns (sections 1 to 3). They only need `runs` and `jobs`.
-2. Step normalisation and "where the time goes" (section 4).
-3. Queue time and waste (sections 5 and 6).
-4. Runner resources using the stored series nobody reads yet (section 7).
-5. Server health (section 9). That covers backfill progress.
+| Section | Page |
+|---|---|
+| 1. Headline cards | Overview, `/stats/` |
+| 2. Time series | Runs per bucket on Overview. Job minutes and queue time per label on Capacity. Spend per bucket on Spend. Failure rate per bucket on Failures. |
+| 3. Breakdowns | Breakdown for repository, workflow, job, event and branch. Capacity for runner label. |
+| 4. Where the time goes | Steps, with names normalised and setup split from work |
+| 5. Waiting | Capacity: queue p50 and p95 per bucket, queue p95 by hour of day, and run start time |
+| 6. Reliability and waste | Failures for failure hotspots. Waste for wasted minutes, re-runs and flaky candidates. |
+| 7. Runner resources | Resources for CPU split, memory headroom, disk and network. Sizing for saving estimates. |
+| 8. Activity | Capacity: runs by weekday and hour, and peak concurrency |
+| 9. Server health | Health |
 
-## Open questions
+## Settled questions
 
-- Should the waste and saving estimates be priced in dollars when most of the repos are public and free on standard runners?
-- Is a 90-day sample retention enough once resource trends are on the page?
+- **Are waste and saving estimates priced in dollars when most repos are public?** Yes, but only where a rate applies, and minutes always come first.
+  - Waste shows wasted minutes as the chart and the headline, with wasted spend beside it as a card.
+  - Minutes that are free, on self-hosted runners or standard runners in public repositories, add $0. Minutes on a label with no known rate are left out of the dollars and counted in the card's hint, never shown as $0.
+  - Sizing leaves a candidate's saving blank when its minutes are free or no smaller label is known, so a public repo shows no invented saving.
+- **Is 90-day sample retention enough once resource trends are on the page?** Yes, and the default stays at 90 days.
+  - Resources cuts a longer range to the oldest sample kept and says so in a note. It also shows the oldest sample kept as a card.
+  - Timing pages read `runs`, `jobs` and `steps`, which are kept forever, so they have no such limit.
+  - An install that wants longer resource trends sets `GAUGER_RETENTION_DAYS`. Partitions are dropped whole, so a longer window costs disk.

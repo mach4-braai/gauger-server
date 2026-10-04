@@ -71,14 +71,39 @@ This contract is shared. Change it in both repos together.
 - **Partitions.** Partition `samples` by day.
 - **Retention.** Set per install, 90 days by default. Enforce it by dropping old partitions, not with row-by-row deletes.
 
-## UI (v1)
+## UI
 
-- **Slow steps.** p50 and p95 per step name.
-- **Regressions.** Daily and per-branch step durations compared with a rolling baseline.
-- **Right-sizing.** Peak memory against `MemTotal`, and CPU saturation against `nproc`. Label these as runner-level values during each step's time window, not the step's own usage.
-- **Spend.**
-  - Job minutes, rounded up per job, times the rate for the runner label.
-  - Private repos only. Public repos on standard runners are free.
+The UI is a dashboard under `/stats/`, rendered by Go with templ and Datastar. `docs/adr/0002-datastar-dashboard.md` has the decisions.
+
+- **Filters.** Every page shares a range (`24h`, `7d`, `30d`, `90d` or `all`), a repository and an event. They live in the query string, so a URL reproduces a view. A change updates the page in place. With JavaScript off, the filter form reloads it.
+- **Time.** Buckets, hours and weekdays are UTC.
+- **Live.** A page re-renders over one SSE stream when the server writes to the database.
+- **Setup.** `/setup` and the manifest flow stay on `html/template`, and link to `/stats/`.
+- **Old URLs.** `/`, `/jobs/{id}`, `/steps`, `/regressions`, `/daily`, `/sizing` and `/spend` redirect with 302 to their dashboard page and keep their query.
+
+Pages:
+
+| Page | Path | Shows |
+|---|---|---|
+| Overview | `/stats/` | Runs, jobs, steps, job minutes and estimated spend. Run and job success rate. Run duration and queue time p50 and p95. gauger coverage. Runs per bucket stacked by conclusion. |
+| Runs | `/stats/runs` | Jobs per bucket stacked by conclusion, over a sortable, searchable table of jobs, 100 a page. |
+| Job | `/stats/jobs/{id}` | One job: timeline of queue wait and steps, CPU, memory, disk and network charts from gauger, and runner usage per step. |
+| Trends | `/stats/trends` | Median workflow and job duration per day, week or month, and a regressions table that compares each day's median step duration per branch with the 14 days before it. |
+| Steps | `/stats/steps` | p50, p95 and total minutes per step name, and setup minutes against work minutes. |
+| Spend | `/stats/spend` | Job minutes, rounded up per job, times the rate for the runner label, per repository, workflow, job and month. |
+| Sizing | `/stats/sizing` | Peak memory against `MemTotal`, and CPU saturation against `nproc`, per runner label, job and step. Candidates for a smaller runner and their saving. |
+| Breakdown | `/stats/breakdown` | Runs, jobs, minutes, spend, success rate, duration and queue time by repository, workflow, job, event or branch. |
+| Capacity | `/stats/capacity` | Minutes and queue time per runner label, queue p95 by hour of day, runs by weekday and hour, and peak concurrency. |
+| Resources | `/stats/resources` | CPU by mode, memory headroom, disk and network per runner label or workflow, for jobs with gauger samples. |
+| Failures | `/stats/failures` | Failed and cancelled runs and the failure rate, failing jobs and steps, and the latest failed jobs with their first failed step. |
+| Waste | `/stats/waste` | Minutes and spend on cancelled and failed jobs, re-runs, and jobs that failed and then passed on the same commit. |
+| Health | `/stats/health` | Webhook deliveries by event type, the reconciler's task queue, and gauger coverage per bucket. |
+
+Rules the pages follow:
+
+- **Sizing and Resources.** Label CPU and memory as runner-level values during each step's time window, not the step's own usage.
+- **Spend.** Private repositories pay for standard runners. Public repositories on standard runners and self-hosted runners are free. A label with no known rate shows its minutes as unknown, not as $0.
+- **Resources.** Count only jobs with samples, and say so. Samples older than the retention period are gone, so a longer range reads from the oldest sample kept.
 
 ## Done when
 

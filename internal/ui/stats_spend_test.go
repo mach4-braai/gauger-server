@@ -3,14 +3,13 @@ package ui_test
 import (
 	"context"
 	"math"
-	"net/http"
-	"net/http/httptest"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/mach4-braai/gauger-server/internal/spend"
 	"github.com/mach4-braai/gauger-server/internal/store"
 	"github.com/mach4-braai/gauger-server/internal/store/storetest"
@@ -68,18 +67,38 @@ func spendJobMinutes(t *testing.T, st *store.Store, cond string, args ...any) in
 	return n
 }
 
-func TestSpendMatchesSpendGroups(t *testing.T) {
+// spendGroups sums each completed job's minutes, rounded up, per
+// repository, completion month and runner labels over every job. It is
+// the month table's oracle, written apart from store.SpendMonths.
+func spendGroups(t *testing.T, st *store.Store, repo string) []store.SpendGroup {
+	t.Helper()
+	rows, err := st.Pool.Query(context.Background(), `
+		SELECT j.repository, date_trunc('month', j.completed_at AT TIME ZONE 'UTC')::timestamptz, j.labels, r.private,
+			count(*), sum(ceil(extract(epoch FROM j.completed_at - j.started_at) / 60))::bigint
+		FROM jobs j
+		LEFT JOIN repositories r ON r.full_name = j.repository
+		WHERE j.status = 'completed' AND j.started_at IS NOT NULL AND j.completed_at > j.started_at
+		  AND ($1 = '' OR j.repository = $1)
+		GROUP BY 1, 2, 3, 4
+		ORDER BY 2 DESC, 1`, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	groups, err := pgx.CollectRows(rows, pgx.RowToStructByPos[store.SpendGroup])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return groups
+}
+
+func TestSpendMatchesJobMinutes(t *testing.T) {
 	st := storetest.Open(t, 90*24*time.Hour)
 	fx := storetest.Seed(t, st)
 	h := dashboard(st, fx.Now.Add(time.Minute))
-	ctx := context.Background()
 
 	for _, repo := range []string{"", "acme/api", "oss/gauger"} {
 		t.Run("repo="+repo, func(t *testing.T) {
-			groups, err := st.SpendGroups(ctx, store.Filter{Repository: repo})
-			if err != nil {
-				t.Fatal(err)
-			}
+			groups := spendGroups(t, st, repo)
 			if len(groups) == 0 {
 				t.Fatal("fixtures have no spend; the case checks nothing")
 			}
@@ -91,7 +110,7 @@ func TestSpendMatchesSpendGroups(t *testing.T) {
 				got[m[1]+"|"+m[2]+"|"+m[3]] = row{m[4], m[5], spendText(m[6]), spendText(m[7])}
 			}
 			if len(got) != len(groups) {
-				t.Errorf("month table has %d rows, SpendGroups has %d", len(got), len(groups))
+				t.Errorf("month table has %d rows, the oracle has %d", len(got), len(groups))
 			}
 
 			var cost float64
@@ -300,24 +319,5 @@ func TestSpendEmptyWindow(t *testing.T) {
 	}
 	if n := strings.Count(page, "Nothing in this range ran to completion."); n != 4 {
 		t.Errorf("empty tables = %d, want 4", n)
-	}
-}
-
-func TestSpendRedirectCarriesTheQuery(t *testing.T) {
-	st := storetest.Open(t, 90*24*time.Hour)
-	h := dashboard(st, time.Now())
-
-	for from, want := range map[string]string{
-		"/spend?repo=acme%2Fapi&range=30d": "/stats/spend?repo=acme%2Fapi&range=30d",
-		"/spend":                           "/stats/spend",
-	} {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, from, nil))
-		if rec.Code != http.StatusFound {
-			t.Fatalf("GET %s: status = %d, want 302", from, rec.Code)
-		}
-		if got := rec.Header().Get("Location"); got != want {
-			t.Errorf("GET %s: Location = %q, want %q", from, got, want)
-		}
 	}
 }

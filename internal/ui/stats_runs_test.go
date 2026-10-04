@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"html"
-	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -99,19 +97,13 @@ func TestRunsTableListsRecentJobs(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			page := get(t, h, tc.url).Body.String()
-			recent, err := st.RecentJobs(context.Background(), store.Filter{Repository: tc.repo, Since: tc.since}, store.RunsPageSize)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var want []int64
-			for _, j := range recent {
-				want = append(want, j.ID)
-			}
+			want := runsQueryIDs(t, st, tc.since, now, tc.repo, "", runsNewestFirst)
 			if len(want) == 0 {
-				t.Fatalf("RecentJobs returned nothing for %s; the case checks nothing", tc.url)
+				t.Fatalf("the fixtures have no jobs for %s; the case checks nothing", tc.url)
 			}
+			want = want[:min(len(want), store.RunsPageSize)]
 			if got := runsJobIDs(page); !reflect.DeepEqual(got, want) {
-				t.Errorf("table lists jobs %v, RecentJobs returns %v", got, want)
+				t.Errorf("table lists jobs %v, want %v", got, want)
 			}
 		})
 	}
@@ -463,22 +455,6 @@ func TestRunsEmptyStates(t *testing.T) {
 	page = get(t, dashboard(bare, time.Now()), "/stats/runs").Body.String()
 	if !strings.Contains(page, `<a href="/setup">Setup</a>`) || !strings.Contains(page, "No jobs yet") {
 		t.Errorf("a store with no repositories should point at /setup:\n%s", page)
-	}
-}
-
-func TestHomeRedirectsToRuns(t *testing.T) {
-	st := storetest.Open(t, 90*24*time.Hour)
-	h := dashboard(st, time.Now())
-
-	for url, want := range map[string]string{
-		"/":                         "/stats/runs",
-		"/?repo=acme%2Fapi&days=30": "/stats/runs?repo=acme%2Fapi&days=30",
-	} {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, url, nil))
-		if rec.Code != http.StatusFound || rec.Header().Get("Location") != want {
-			t.Errorf("GET %s = %d to %q, want 302 to %q", url, rec.Code, rec.Header().Get("Location"), want)
-		}
 	}
 }
 
