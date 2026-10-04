@@ -1,0 +1,58 @@
+package chart
+
+import (
+	"strconv"
+	"strings"
+)
+
+// Heatmap draws p as a grid whose cells darken with their value. Hovering
+// a cell shows its tooltip. Each cell carries its value as data-value.
+templ Heatmap(p HeatmapProps) {
+	@drawHeatmap(p.plan())
+}
+
+templ drawHeatmap(h heatmap) {
+	<div
+		id={ h.ID }
+		class="chart"
+		data-signals={ "{_chart: {" + strings.TrimPrefix(h.Hover, "$_chart.") + ": -1}}" }
+	>
+		<svg viewBox={ "0 0 " + num(h.W) + " " + num(h.H) } role="img" data-on:pointerleave={ h.Hover + " = -1" }>
+			<g class="chart-axis">
+				for _, t := range h.RowTicks {
+					<text x={ num(t.X) } y={ num(t.Y) } dy="0.32em" text-anchor="end">{ t.Label }</text>
+				}
+				for _, t := range h.ColTicks {
+					<text x={ num(t.X) } y={ num(t.Y) } text-anchor="middle">{ t.Label }</text>
+				}
+			</g>
+			for _, c := range h.Cells {
+				<rect class="heatmap-cell" x={ num(c.X) } y={ num(c.Y) } width={ num(c.W) } height={ num(c.H) } rx="2" fill={ c.Fill } fill-opacity={ strconv.FormatFloat(c.Opacity, 'f', 2, 64) } data-value={ strconv.FormatFloat(c.Value, 'f', -1, 64) }></rect>
+			}
+			for _, c := range h.Cells {
+				<rect class="chart-cursor" x={ num(c.X) } y={ num(c.Y) } width={ num(c.W) } height={ num(c.H) } rx="2" style="display: none" data-show={ h.Hover + " === " + strconv.Itoa(c.Slot) }></rect>
+			}
+			<g class="chart-hits">
+				for _, c := range h.Cells {
+					<rect x={ num(c.X) } y={ num(c.Y) } width={ num(c.W) } height={ num(c.H) } data-on:pointerenter={ h.Hover + " = " + strconv.Itoa(c.Slot) }></rect>
+				}
+			</g>
+		</svg>
+		if h.Empty {
+			<div class="chart-empty">{ h.EmptyLabel }</div>
+		} else {
+			for _, c := range h.Cells {
+				<div class="chart-tooltip" style={ templ.SafeCSS("display: none; " + c.Tip.Side + ": " + pct(c.Tip.Offset) + "; top: " + pct(c.Tip.Top)) } data-show={ h.Hover + " === " + strconv.Itoa(c.Slot) }>
+					<div class="chart-tooltip-title">{ c.Tip.Title }</div>
+					for _, r := range c.Tip.Rows {
+						<div class="chart-tooltip-row">
+							<span class="swatch" style={ templ.SafeCSS("background: " + r.Color) }></span>
+							<span class="chart-tooltip-label">{ r.Label }</span>
+							<span class="chart-tooltip-value">{ r.Value }</span>
+						</div>
+					}
+				</div>
+			}
+		}
+	</div>
+}
