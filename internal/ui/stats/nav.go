@@ -22,4 +22,5 @@ var nav = []navItem{
 	{"Performance", "/stats/steps", "Steps", stepsIcon},
 	{"Infrastructure", "/stats/capacity", "Capacity", capacityIcon},
 	{"Reliability", "/stats/failures", "Failures", failuresIcon},
+	{"Reliability", "/stats/waste", "Waste", wasteIcon},
 }
