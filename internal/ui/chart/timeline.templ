@@ -1,0 +1,68 @@
+package chart
+
+import "strconv"
+
+// Timeline draws one row per span against a shared time axis, after omp's
+// Traces page. Hovering a row shows its tooltip; a row with an Href follows
+// it in place when clicked.
+templ Timeline(p TimelineProps) {
+	{{ t := p.plan() }}
+	<div id={ t.ID } class="timeline" data-signals={ "{_chart: {" + t.Signal + ": -1}}" } data-on:pointerleave={ t.Hover + " = -1" }>
+		if len(t.Rows) == 0 {
+			<div class="timeline-empty">{ t.Empty }</div>
+		} else {
+			<div class="timeline-axis">
+				<div class="timeline-label"></div>
+				<div class="timeline-lane">
+					for _, tick := range t.Ticks {
+						<span class="timeline-tick" style={ percent(tick.Left) }>{ tick.Label }</span>
+					}
+				</div>
+			</div>
+			for i, r := range t.Rows {
+				<div class="timeline-row" data-class:hover={ t.Hover + " === " + strconv.Itoa(i) } data-on:pointerenter={ t.Hover + " = " + strconv.Itoa(i) }>
+					if r.Href != "" {
+						<a class="timeline-label" href={ r.Href } data-nav>{ r.Label }</a>
+					} else {
+						<span class="timeline-label">{ r.Label }</span>
+					}
+					<div class="timeline-lane">
+						<div class="timeline-grid">
+							for _, tick := range t.Ticks {
+								<span style={ percent(tick.Left) }></span>
+							}
+						</div>
+						if r.Placed {
+							if r.Href != "" {
+								<a class="timeline-span" href={ r.Href } style={ r.barStyle() } data-nav></a>
+							} else {
+								<span class="timeline-span" style={ r.barStyle() }></span>
+							}
+						}
+						<div class="chart-tooltip timeline-tooltip" style={ r.Tip.style() } data-show={ t.Hover + " === " + strconv.Itoa(i) }>
+							<div class="chart-tooltip-title">{ r.Tip.Title }</div>
+							for _, d := range r.Tip.Details {
+								<div class="chart-tooltip-row">
+									<span class="chart-tooltip-label">{ d.Label }</span>
+									<span class="chart-tooltip-value">{ d.Value }</span>
+								</div>
+							}
+						</div>
+					</div>
+				</div>
+			}
+		}
+	</div>
+}
+
+// Trace draws p like Chart, with its slots spread over the time from Start
+// to End and a dashed line at each mark.
+templ Trace(p TraceProps) {
+	{{ c := p.chart().plan() }}
+	<div class="trace">
+		@draw(c)
+		for _, m := range p.marks(c) {
+			<div class="trace-mark" style={ m }></div>
+		}
+	</div>
+}

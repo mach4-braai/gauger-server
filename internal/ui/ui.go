@@ -44,7 +44,7 @@ type UI struct {
 
 func (u *UI) Handler() http.Handler {
 	u.pages = map[string]*template.Template{}
-	for _, name := range []string{"setup", "setup_redirect", "jobs", "job", "steps", "regressions", "daily", "sizing", "spend"} {
+	for _, name := range []string{"setup", "setup_redirect", "jobs", "steps", "regressions", "daily", "sizing", "spend"} {
 		u.pages[name] = template.Must(template.New("layout.html").Funcs(u.funcs()).
 			ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html"))
 	}
@@ -120,7 +120,6 @@ var funcs = template.FuncMap{
 		}
 		return fmt.Sprintf("%.1f of %.0f", *util**n, *n)
 	},
-	"num":   func(v *float64) string { return optional(v, func(x float64) string { return fmt.Sprintf("%.0f", x) }) },
 	"times": func(a, b float64) string { return fmt.Sprintf("%.2f×", a/b) },
 	"usd":   func(v float64) string { return fmt.Sprintf("$%.2f", v) },
 	"join":  strings.Join,
@@ -135,8 +134,6 @@ var funcs = template.FuncMap{
 		return ""
 	},
 	"workflowURL": github.WorkflowURL,
-	"runURL":      github.RunURL,
-	"commitURL":   github.CommitURL,
 	"branchURL":   github.BranchURL,
 	"stepURL":     github.StepURL,
 }

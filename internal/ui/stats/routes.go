@@ -4,4 +4,5 @@ package stats
 // the page's render function.
 var routes = []route{
 	{"/stats/{$}", "Overview", (*Server).overview},
+	{"/stats/jobs/{id}", "Job", (*Server).job},
 }

@@ -103,6 +103,7 @@ type JobDetail struct {
 	RunnerDone *time.Time
 	MemTotal   *float64
 	CPUCount   *float64
+	CreatedAt  *time.Time
 	Steps      []StepUsage
 }
 
@@ -131,14 +132,15 @@ func (s *Store) Job(ctx context.Context, id int64) (*JobDetail, error) {
 			j.run_id, j.run_attempt, coalesce(j.runner_name, ''), j.labels, coalesce(j.html_url, ''),
 			coalesce(r.event, ''), coalesce(r.head_sha, ''), j.runner_seen_at, j.runner_done_at,
 			(SELECT max(value) FROM samples m WHERE m.job_id = j.id AND m.metric = $2),
-			(SELECT max(value) FROM samples m WHERE m.job_id = j.id AND m.metric = $3)
+			(SELECT max(value) FROM samples m WHERE m.job_id = j.id AND m.metric = $3),
+			j.created_at
 		FROM jobs j
 		LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
 		WHERE j.id = $1`, id, MetricMemoryLimit, MetricCPUCount).Scan(
 		&d.ID, &d.Repository, &d.Workflow, &d.Path, &d.Name, &d.Branch, &d.Status, &d.Conclusion,
 		&d.StartedAt, &d.CompletedAt, &d.Samples, &d.FromArtifact,
 		&d.RunID, &d.RunAttempt, &d.RunnerName, &d.Labels, &d.HTMLURL,
-		&d.Event, &d.HeadSHA, &d.RunnerSeen, &d.RunnerDone, &d.MemTotal, &d.CPUCount)
+		&d.Event, &d.HeadSHA, &d.RunnerSeen, &d.RunnerDone, &d.MemTotal, &d.CPUCount, &d.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -163,24 +165,6 @@ func (s *Store) Job(ctx context.Context, id int64) (*JobDetail, error) {
 	}
 	d.Steps, err = pgx.CollectRows(rows, pgx.RowToStructByPos[StepUsage])
 	return &d, err
-}
-
-type Sample struct {
-	Time   time.Time
-	Metric string
-	Value  float64
-}
-
-// JobSeries returns CPU utilization and used memory for a job's chart.
-func (s *Store) JobSeries(ctx context.Context, id int64) ([]Sample, error) {
-	rows, err := s.Pool.Query(ctx, `
-		SELECT ts, metric, value FROM samples
-		WHERE job_id = $1 AND ((metric = $2 AND series = '') OR (metric = $3 AND series = $4))
-		ORDER BY ts`, id, MetricCPUUtilization, MetricMemoryUsage, SeriesMemoryUsed)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[Sample])
 }
 
 // Filter narrows a report to one repository and one run event (empty for

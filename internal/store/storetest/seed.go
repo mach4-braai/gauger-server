@@ -28,6 +28,9 @@ type Fixtures struct {
 	ArtifactJob int64
 	// UnsampledJob is a completed job with no gauger data.
 	UnsampledJob int64
+	// ArtifactOnlyJob is a job gauger never reached, whose samples came
+	// from the fallback artifact alone.
+	ArtifactOnlyJob int64
 }
 
 // Seed fills st with the dashboard fixtures, anchored at the current time.
@@ -46,6 +49,7 @@ func Seed(t testing.TB, st *store.Store) Fixtures {
 func Fill(ctx context.Context, st *store.Store, now time.Time) (Fixtures, error) {
 	s := newSeeder(now)
 	s.history()
+	s.jobPage()
 	return s.fx, s.insert(ctx, st)
 }
 
