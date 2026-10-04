@@ -1,0 +1,103 @@
+package stats
+
+import (
+	"strconv"
+
+	"github.com/mach4-braai/gauger-server/internal/ui/chart"
+)
+
+// Building blocks every page shares, after omp's ui/ components.
+
+// pageHeader is the title band at the top of a page.
+templ pageHeader(title, description string) {
+	<header class="page-header rise">
+		<div>
+			<h1 class="page-title">{ title }</h1>
+			if description != "" {
+				<p class="page-description">{ description }</p>
+			}
+		</div>
+	</header>
+}
+
+// card is the dashboard's container, with an optional header.
+templ card(title, description string) {
+	<section class="card rise">
+		if title != "" || description != "" {
+			<header class="card-header">
+				<div class="card-titles">
+					if title != "" {
+						<h2 class="card-title">{ title }</h2>
+					}
+					if description != "" {
+						<p class="card-description">{ description }</p>
+					}
+				</div>
+			</header>
+		}
+		<div class="card-body">
+			{ children... }
+		</div>
+	</section>
+}
+
+// statGrid lays stat tiles out in one card, each at least min pixels wide.
+templ statGrid(min int) {
+	<div class="stat-grid rise" style={ templ.SafeCSS("--stat-min: " + strconv.Itoa(min) + "px") }>
+		{ children... }
+	</div>
+}
+
+// tile is one metric. ID names it for tests and for patches; Title
+// explains it on hover.
+type tile struct {
+	ID         string
+	Label      string
+	Value      string
+	Hint       string
+	Title      string
+	Small      bool
+	Spark      []float64
+	SparkColor string
+}
+
+templ stat(t tile) {
+	<div
+		id={ "stat-" + t.ID }
+		class="stat"
+		if t.Small {
+			data-size="sm"
+		}
+		if t.Title != "" {
+			title={ t.Title }
+		}
+	>
+		<div class="stat-label">{ t.Label }</div>
+		<div class="stat-value">{ t.Value }</div>
+		if t.Hint != "" {
+			<div class="stat-foot"><span class="truncate">{ t.Hint }</span></div>
+		}
+		if len(t.Spark) > 1 {
+			<div class="stat-spark">
+				@chart.Sparkline(t.Spark, cmpOr(t.SparkColor, "var(--chart-primary)"))
+			</div>
+		}
+	</div>
+}
+
+templ emptyState(title, hint string) {
+	<div class="empty">
+		@inboxIcon()
+		<div class="empty-title">{ title }</div>
+		if hint != "" {
+			<div class="empty-hint">{ hint }</div>
+		}
+	</div>
+}
+
+func cmpOr(v, def string) string {
+	if v == "" {
+		return def
+	}
+	return v
+}

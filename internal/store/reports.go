@@ -183,10 +183,14 @@ func (s *Store) JobSeries(ctx context.Context, id int64) ([]Sample, error) {
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Sample])
 }
 
-// Filter narrows a report to one repository (empty for all) since a time.
+// Filter narrows a report to one repository and one run event (empty for
+// all) within [Since, Until). The template reports read only Repository
+// and Since; the dashboard queries in stats_*.go read every field.
 type Filter struct {
 	Repository string
+	Event      string
 	Since      time.Time
+	Until      time.Time
 }
 
 type SlowStep struct {

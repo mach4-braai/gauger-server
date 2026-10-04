@@ -17,6 +17,7 @@ import (
 	"github.com/mach4-braai/gauger-server/internal/github"
 	"github.com/mach4-braai/gauger-server/internal/spend"
 	"github.com/mach4-braai/gauger-server/internal/store"
+	"github.com/mach4-braai/gauger-server/internal/ui/stats"
 )
 
 //go:embed templates/*.html
@@ -35,6 +36,8 @@ type UI struct {
 	Wake func()
 	// Version identifies the build, shown in the navbar. Empty hides it.
 	Version string
+	// Now is the dashboard's clock. Nil uses time.Now.
+	Now func() time.Time
 
 	pages map[string]*template.Template
 }
@@ -57,6 +60,12 @@ func (u *UI) Handler() http.Handler {
 	mux.HandleFunc("POST /setup/manifest", u.setupManifest)
 	mux.HandleFunc("GET /setup/callback", u.setupCallback)
 	mux.HandleFunc("POST /setup/backfill", u.setupBackfill)
+	dashboard := (&stats.Server{
+		Store: u.Store, Rates: u.Rates, GitHubURL: u.GitHubURL,
+		Version: u.Version, VersionURL: u.versionURL(), Now: u.Now,
+	}).Handler()
+	mux.Handle("/stats/", dashboard)
+	mux.Handle("/static/", dashboard)
 	return mux
 }
 
@@ -64,13 +73,16 @@ func (u *UI) Handler() http.Handler {
 func (u *UI) funcs() template.FuncMap {
 	f := maps.Clone(funcs)
 	f["version"] = func() string { return u.Version }
-	f["versionURL"] = func() string {
-		if !shaRE.MatchString(u.Version) {
-			return ""
-		}
-		return commitURL(u.GitHubURL, "mach4-braai/gauger-server", u.Version)
-	}
+	f["versionURL"] = u.versionURL
 	return f
+}
+
+// versionURL links a commit-hash Version to its commit, or is empty.
+func (u *UI) versionURL() string {
+	if !shaRE.MatchString(u.Version) {
+		return ""
+	}
+	return github.CommitURL(u.GitHubURL, "mach4-braai/gauger-server", u.Version)
 }
 
 var shaRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
@@ -122,11 +134,11 @@ var funcs = template.FuncMap{
 		}
 		return ""
 	},
-	"workflowURL": workflowURL,
-	"runURL":      runURL,
-	"commitURL":   commitURL,
-	"branchURL":   branchURL,
-	"stepURL":     stepURL,
+	"workflowURL": github.WorkflowURL,
+	"runURL":      github.RunURL,
+	"commitURL":   github.CommitURL,
+	"branchURL":   github.BranchURL,
+	"stepURL":     github.StepURL,
 }
 
 func optional(v *float64, f func(float64) string) string {

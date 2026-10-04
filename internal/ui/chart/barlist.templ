@@ -1,0 +1,55 @@
+package chart
+
+import "fmt"
+
+// BarListItem is one ranked row. Display defaults to Integer(Value) and
+// Color to the primary chart colour. With Href the row is a link.
+type BarListItem struct {
+	Key     string
+	Label   string
+	Value   float64
+	Display string
+	Color   string
+	Href    string
+}
+
+func (b BarListItem) fill(top float64) templ.SafeCSS {
+	pct := 0.0
+	if top > 0 {
+		pct = max(0.5, b.Value/top*100)
+	}
+	return templ.SafeCSS(fmt.Sprintf("width: %.2f%%; background: %s", pct, cmpOr(b.Color, "var(--chart-primary)")))
+}
+
+func (b BarListItem) display() string { return cmpOr(b.Display, Integer(b.Value)) }
+
+// BarList ranks items with a fill behind each label proportional to its
+// value. top is the scale maximum; zero uses the largest value.
+templ BarList(items []BarListItem, top float64) {
+	{{
+		if top == 0 {
+			for _, it := range items {
+				top = max(top, it.Value)
+			}
+		}
+	}}
+	<div class="bar-list">
+		for _, it := range items {
+			if it.Href != "" {
+				<a class="bar-list-row" href={ it.Href } data-nav>
+					@barListBody(it, top)
+				</a>
+			} else {
+				<div class="bar-list-row">
+					@barListBody(it, top)
+				</div>
+			}
+		}
+	</div>
+}
+
+templ barListBody(it BarListItem, top float64) {
+	<span class="bar-list-fill" style={ it.fill(top) }></span>
+	<span class="bar-list-label">{ it.Label }</span>
+	<span class="bar-list-value">{ it.display() }</span>
+}
