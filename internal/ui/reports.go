@@ -44,18 +44,14 @@ func (u *UI) job(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, to, http.StatusFound)
 }
 
+// steps sends the old slow steps page to the dashboard's Steps page, with
+// its query parameters.
 func (u *UI) steps(w http.ResponseWriter, r *http.Request) {
-	f, form, err := u.filter(r, 30)
-	if err != nil {
-		u.fail(w, err)
-		return
+	to := "/stats/steps"
+	if r.URL.RawQuery != "" {
+		to += "?" + r.URL.RawQuery
 	}
-	rows, err := u.Store.SlowSteps(r.Context(), f)
-	if err != nil {
-		u.fail(w, err)
-		return
-	}
-	u.render(w, "steps", map[string]any{"Filter": form, "Rows": rows})
+	http.Redirect(w, r, to, http.StatusFound)
 }
 
 // trendsRedirect sends /daily and /regressions to /stats/trends. Their

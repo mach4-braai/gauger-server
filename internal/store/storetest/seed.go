@@ -54,6 +54,7 @@ func Fill(ctx context.Context, st *store.Store, now time.Time) (Fixtures, error)
 	s.history()
 	s.jobPage()
 	s.trends()
+	s.actionRefs()
 	return s.fx, s.insert(ctx, st)
 }
 

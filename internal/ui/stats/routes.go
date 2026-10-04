@@ -7,4 +7,5 @@ var routes = []route{
 	{"/stats/jobs/{id}", "Job", (*Server).job},
 	{"/stats/runs", "Runs", (*Server).runs},
 	{"/stats/trends", "Trends", (*Server).trends},
+	{"/stats/steps", "Steps", (*Server).steps},
 }
