@@ -408,7 +408,7 @@ func TestSpendRoundsEachJobUp(t *testing.T) {
 	for _, d := range []time.Duration{61 * time.Second, 10 * time.Second, 120 * time.Second} {
 		s.job("acme/app", "main", []string{"ubuntu-latest"}, start, map[string]time.Duration{"x": d})
 	}
-	groups, err := st.SpendGroups(ctx, store.Filter{Since: start.Add(-time.Hour)})
+	groups, err := st.SpendMonths(ctx, store.Filter{Since: start.Add(-time.Hour), Until: start.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}

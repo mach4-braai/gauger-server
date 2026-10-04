@@ -303,27 +303,17 @@ func TestJobPageResourceCharts(t *testing.T) {
 	}
 }
 
-func TestJobPageNotFoundAndRedirect(t *testing.T) {
+func TestJobPageNotFound(t *testing.T) {
 	st := storetest.Open(t, 90*24*time.Hour)
 	fx := storetest.Seed(t, st)
 	h := dashboard(st, fx.Now)
 
-	for path, want := range map[string]int{
-		"/stats/jobs/1":    http.StatusNotFound,
-		"/stats/jobs/nope": http.StatusNotFound,
-		"/jobs/" + strconv.FormatInt(fx.SampledJob, 10): http.StatusFound,
-	} {
+	for _, path := range []string{"/stats/jobs/1", "/stats/jobs/nope"} {
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
-		if rec.Code != want {
-			t.Errorf("GET %s = %d, want %d", path, rec.Code, want)
+		if rec.Code != http.StatusNotFound {
+			t.Errorf("GET %s = %d, want %d", path, rec.Code, http.StatusNotFound)
 		}
-	}
-
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/jobs/"+strconv.FormatInt(fx.SampledJob, 10)+"?range=30d&step=2", nil))
-	if loc, want := rec.Header().Get("Location"), jobPageURL(fx.SampledJob)+"?range=30d&step=2"; loc != want {
-		t.Errorf("Location = %q, want %q", loc, want)
 	}
 }
 

@@ -45,8 +45,8 @@ func (s *Store) SpendRows(ctx context.Context, f Filter, bucket string) ([]Spend
 }
 
 // SpendMonths sums the window's job minutes per repository, UTC month of
-// completion and runner labels, newest month first. It groups like
-// SpendGroups, within the dashboard's window.
+// completion and runner labels, newest month first, each job rounded up
+// to a whole minute.
 func (s *Store) SpendMonths(ctx context.Context, f Filter) ([]SpendGroup, error) {
 	rows, err := s.Pool.Query(ctx, `
 		WITH`+windowed+`

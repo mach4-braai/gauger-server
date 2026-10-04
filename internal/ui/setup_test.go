@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -140,5 +141,26 @@ func TestBackfillRequiresConfiguredApp(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/setup/backfill", strings.NewReader(url.Values{"days": {"14"}}.Encode())))
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status %d, want 409", rec.Code)
+	}
+}
+
+func TestSetupHeaderLinksOnlyToDashboardAndSetup(t *testing.T) {
+	st := storetest.Open(t, 90*24*time.Hour)
+	gh := githubtest.New(t)
+	h := (&ui.UI{Store: st, GitHub: github.NewClient(gh.URL, st), Creds: st, DNSName: "gauger.example.ts.net", GitHubURL: "https://github.com"}).Handler()
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/setup", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body)
+	}
+	_, rest, _ := strings.Cut(rec.Body.String(), "<header>")
+	header, _, _ := strings.Cut(rest, "</header>")
+	var links []string
+	for _, m := range regexp.MustCompile(`href="([^"]*)"`).FindAllStringSubmatch(header, -1) {
+		links = append(links, m[1])
+	}
+	if want := []string{"/stats/", "/stats/", "/setup"}; !slices.Equal(links, want) {
+		t.Errorf("header links = %v, want %v", links, want)
 	}
 }
