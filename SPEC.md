@@ -13,11 +13,12 @@ Self-hosted Go server and web UI. It joins GitHub Actions webhook timings with [
 
 ## Listeners
 
-These three must stay separate. A Funnel listener without `FunnelOnly` also accepts tailnet traffic, so the UI must never share it.
+These four must stay separate. A Funnel listener without `FunnelOnly` also accepts tailnet traffic, so the UI must never share it.
 
 | Port | Reach | tsnet call | Serves |
 |---|---|---|---|
-| `:4318` | tailnet only | `Listen` | OTLP/HTTP and job lifecycle from `tag:gauger-ci` |
+| `:10000` | public only | `ListenFunnel("tcp", ":10000", tsnet.FunnelOnly())` | OTLP/HTTP and job lifecycle from GitHub Actions runners |
+| `:4318` | tailnet only | `Listen` | OTLP/HTTP and job lifecycle from `tag:gauger-ci`, until no released gauger uses it |
 | `:443` | tailnet only | `ListenTLS` | web UI |
 | `:8443` | public only | `ListenFunnel("tcp", ":8443", tsnet.FunnelOnly())` | GitHub webhooks |
 
@@ -34,9 +35,9 @@ These three must stay separate. A Funnel listener without `FunnelOnly` also acce
   - Verify `X-Hub-Signature-256` before parsing.
   - Deduplicate on `X-GitHub-Delivery`.
   - Assume some deliveries go missing, and repair from REST.
-- **Runner data.** Accept it only when both checks pass:
-  - `WhoIs` says the caller is `tag:gauger-ci`.
-  - The bearer token is a valid GitHub OIDC JWT: `iss` is `https://token.actions.githubusercontent.com`, `aud` is `gauger-server`, `exp` hasn't passed, and `repository_owner_id` is `287937105`.
+- **Runner data.** Accept it only when these checks pass:
+  - The bearer token is a valid GitHub OIDC JWT: `iss` is `https://token.actions.githubusercontent.com`, `aud` is `gauger-server`, `exp` hasn't passed, and `repository_owner_id` is `287937105`. On `:10000` this is the only check.
+  - On `:4318`, `WhoIs` also says the caller is `tag:gauger-ci`.
 
   Each request may only write to the job its token names. Every identity in the body must match the token's `repository`, `run_id`, `run_attempt` and `check_run_id` claims. A mismatch gets `403` and stores nothing.
 
@@ -58,9 +59,11 @@ These three must stay separate. A Funnel listener without `FunnelOnly` also acce
 
 This contract is shared. Change it in both repos together.
 
+- **Endpoint:** `https://<host>.<tailnet>.ts.net:10000`, public HTTPS through Funnel. The GitHub OIDC token is the only credential.
 - **Lifecycle:** `POST /v1/jobs/start` and `POST /v1/jobs/done`.
 - **Metrics:** OTLP to `/v1/metrics`.
-- **Identity attributes on every record:** `github.run_id`, `github.run_attempt`, `github.check_run_id`, `github.repository`, `github.workflow`, `github.job` and `runner.name`.
+- **Identity attributes on every record:** `github.run_id`, `github.run_attempt`, `github.check_run_id`, `github.repository`, `github.workflow`, `github.job` and `runner.name`. They must name the job the token was issued to, or the request gets `403`.
+- **Rate limits:** `429` with `Retry-After` when a job or client address is over its rate.
 
 ## Data
 
@@ -81,4 +84,4 @@ This contract is shared. Change it in both repos together.
 
 - A real job produces run, job and step timings from webhooks, plus samples from gauger, joined in one view.
 - A server restart mid-job loses nothing. Pending jobs resume, and the samples arrive later from gauger's buffer or the fallback artifact.
-- From outside the tailnet, `:8443` answers and `:443` and `:4318` refuse connections.
+- From outside the tailnet, `:8443` and `:10000` answer and `:443` and `:4318` refuse connections.

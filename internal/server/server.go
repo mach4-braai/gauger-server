@@ -13,9 +13,12 @@ import (
 )
 
 type Server struct {
-	// Runner handles gauger's lifecycle and OTLP routes, already wrapped in
-	// runner authentication.
+	// Runner handles gauger's lifecycle and OTLP routes on the tailnet,
+	// already wrapped in runner authentication.
 	Runner http.Handler
+	// FunnelRunner handles the same routes from the internet, already
+	// wrapped in runner authentication without the tailnet tag check.
+	FunnelRunner http.Handler
 	// RunnerConnContext, if set, adds a runner connection's details to the
 	// context of its requests.
 	RunnerConnContext func(context.Context, net.Conn) context.Context
@@ -29,13 +32,18 @@ func healthz(w http.ResponseWriter, _ *http.Request) {
 	w.Write([]byte("ok\n"))
 }
 
-// RunnerHandler serves the tailnet-only :4318 listener.
-func (s *Server) RunnerHandler() http.Handler {
+func runnerMux(h http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", healthz)
-	mux.Handle("/v1/", s.Runner)
+	mux.Handle("/v1/", h)
 	return mux
 }
+
+// RunnerHandler serves the tailnet-only :4318 listener.
+func (s *Server) RunnerHandler() http.Handler { return runnerMux(s.Runner) }
+
+// FunnelRunnerHandler serves the Funnel-only :10000 listener.
+func (s *Server) FunnelRunnerHandler() http.Handler { return runnerMux(s.FunnelRunner) }
 
 // UIHandler serves the tailnet-only :443 listener.
 func (s *Server) UIHandler() http.Handler {
@@ -54,7 +62,7 @@ func (s *Server) WebhookHandler() http.Handler {
 }
 
 type Listeners struct {
-	Runner, UI, Webhook net.Listener
+	Runner, FunnelRunner, UI, Webhook net.Listener
 }
 
 // Serve runs one http.Server per listener until ctx ends or one fails.
@@ -67,6 +75,7 @@ func (s *Server) Serve(ctx context.Context, l Listeners) error {
 		connCtx func(context.Context, net.Conn) context.Context
 	}{
 		{"runner", l.Runner, s.RunnerHandler(), s.RunnerConnContext},
+		{"funnel-runner", l.FunnelRunner, s.FunnelRunnerHandler(), s.RunnerConnContext},
 		{"ui", l.UI, s.UIHandler(), nil},
 		{"webhook", l.Webhook, s.WebhookHandler(), nil},
 	} {
