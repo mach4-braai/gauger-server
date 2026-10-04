@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -143,5 +142,3 @@ func (s *Store) MarkArtifactIngested(ctx context.Context, jobID int64) error {
 	_, err := s.Exec(ctx, `UPDATE jobs SET artifact_ingested_at = now() WHERE id = $1`, jobID)
 	return err
 }
-
-func JobKey(jobID int64) string { return strconv.FormatInt(jobID, 10) }

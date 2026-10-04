@@ -3,8 +3,6 @@ package ui_test
 import (
 	"context"
 	"fmt"
-	"net/http"
-	"net/http/httptest"
 	"regexp"
 	"slices"
 	"strconv"
@@ -354,21 +352,6 @@ func TestSizingDatastarRequestPatchesPage(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("patch is missing %q:\n%s", want, body)
-		}
-	}
-}
-
-func TestSizingRedirectKeepsTheQuery(t *testing.T) {
-	st := storetest.Open(t, 90*24*time.Hour)
-	h := dashboard(st, time.Now())
-	for url, want := range map[string]string{
-		"/sizing":                         "/stats/sizing",
-		"/sizing?days=14&repo=acme%2Fapi": "/stats/sizing?days=14&repo=acme%2Fapi",
-	} {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, url, nil))
-		if rec.Code != http.StatusFound || rec.Header().Get("Location") != want {
-			t.Errorf("GET %s = %d to %q, want 302 to %q", url, rec.Code, rec.Header().Get("Location"), want)
 		}
 	}
 }

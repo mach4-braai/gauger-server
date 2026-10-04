@@ -66,7 +66,7 @@ type RunsQuery struct {
 	Offset int
 }
 
-// RunRow is a job of the Runs page: the columns RecentJobs returns, with
+// RunRow is a job of the Runs page: the job's columns, with
 // the run it belongs to, the commit, and how long it queued. Outcome is the
 // job's group, one of the Outcome constants.
 type RunRow struct {

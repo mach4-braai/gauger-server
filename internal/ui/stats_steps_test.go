@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"html"
 	"math"
-	"net/http"
-	"net/http/httptest"
 	"regexp"
 	"strconv"
 	"strings"
@@ -332,21 +330,6 @@ func TestStepsDatastarRequestPatchesPage(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("patch is missing %q", want)
-		}
-	}
-}
-
-func TestOldStepsPageRedirects(t *testing.T) {
-	st := storetest.Open(t, 90*24*time.Hour)
-	h := dashboard(st, time.Now())
-	for url, want := range map[string]string{
-		"/steps":                        "/stats/steps",
-		"/steps?repo=acme%2Fapi&days=7": "/stats/steps?repo=acme%2Fapi&days=7",
-	} {
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, url, nil))
-		if rec.Code != http.StatusFound || rec.Header().Get("Location") != want {
-			t.Errorf("GET %s = %d to %q, want 302 to %q", url, rec.Code, rec.Header().Get("Location"), want)
 		}
 	}
 }

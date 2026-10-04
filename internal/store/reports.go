@@ -56,6 +56,7 @@ const jobWorkflows = workflowPath + `,
 			LEFT JOIN wf ON wf.repository = j.repository AND wf.path = coalesce(r.path, wp.path)
 		)`
 
+// JobRow is the job columns the Runs and Job pages share.
 type JobRow struct {
 	ID           int64
 	Repository   string
@@ -69,25 +70,6 @@ type JobRow struct {
 	CompletedAt  *time.Time
 	Samples      int64
 	FromArtifact bool
-}
-
-func (s *Store) RecentJobs(ctx context.Context, f Filter, limit int) ([]JobRow, error) {
-	rows, err := s.Pool.Query(ctx, `
-		SELECT j.id, j.repository, coalesce(j.workflow_name, r.workflow_name, ''), coalesce(r.path, ''), coalesce(j.name, ''),
-			coalesce(j.head_branch, r.head_branch, ''), j.status, coalesce(j.conclusion, ''),
-			j.started_at, j.completed_at,
-			(SELECT count(DISTINCT m.ts) FROM samples m WHERE m.job_id = j.id),
-			j.artifact_ingested_at IS NOT NULL
-		FROM jobs j
-		LEFT JOIN runs r ON r.id = j.run_id AND r.attempt = j.run_attempt
-		WHERE coalesce(j.started_at, j.created_at, j.runner_seen_at) >= $1
-		  AND ($2 = '' OR j.repository = $2)
-		ORDER BY coalesce(j.started_at, j.created_at, j.runner_seen_at) DESC NULLS LAST
-		LIMIT $3`, f.Since, f.Repository, limit)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[JobRow])
 }
 
 type JobDetail struct {
@@ -167,9 +149,8 @@ func (s *Store) Job(ctx context.Context, id int64) (*JobDetail, error) {
 	return &d, err
 }
 
-// Filter narrows a report to one repository and one run event (empty for
-// all) within [Since, Until). The template reports read only Repository
-// and Since; the dashboard queries in stats_*.go read every field.
+// Filter narrows a dashboard query to one repository and one run event
+// (empty for all) within [Since, Until).
 type Filter struct {
 	Repository string
 	Event      string
@@ -311,6 +292,8 @@ func (s *Store) Sizing(ctx context.Context, f Filter) ([]Sizing, error) {
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[Sizing])
 }
 
+// SpendGroup is the job minutes of one repository, UTC month and set of
+// runner labels, each job rounded up to a whole minute.
 type SpendGroup struct {
 	Repository string
 	Month      time.Time
@@ -318,24 +301,6 @@ type SpendGroup struct {
 	Private    *bool
 	Jobs       int64
 	Minutes    int64
-}
-
-// SpendGroups sums job minutes, each job rounded up to a whole minute, per
-// repository, month and runner labels.
-func (s *Store) SpendGroups(ctx context.Context, f Filter) ([]SpendGroup, error) {
-	rows, err := s.Pool.Query(ctx, `
-		SELECT j.repository, date_trunc('month', j.completed_at AT TIME ZONE 'UTC')::timestamptz, j.labels, r.private,
-			count(*), sum(ceil(extract(epoch FROM j.completed_at - j.started_at) / 60))::bigint
-		FROM jobs j
-		LEFT JOIN repositories r ON r.full_name = j.repository
-		WHERE j.status = 'completed' AND j.started_at IS NOT NULL AND j.completed_at > j.started_at
-		  AND j.completed_at >= $1 AND ($2 = '' OR j.repository = $2)
-		GROUP BY 1, 2, 3, 4
-		ORDER BY 2 DESC, 1`, f.Since, f.Repository)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[SpendGroup])
 }
 
 // DailyDuration is the median duration of a workflow's runs, or of one of
