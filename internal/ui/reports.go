@@ -4,27 +4,9 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"time"
 
-	"github.com/mach4-braai/gauger-server/internal/store"
 	"github.com/mach4-braai/gauger-server/internal/ui/stats"
 )
-
-type filterForm struct {
-	Repo  string
-	Days  int
-	Repos []string
-}
-
-func (u *UI) filter(r *http.Request, defaultDays int) (store.Filter, filterForm, error) {
-	days, err := strconv.Atoi(r.URL.Query().Get("days"))
-	if err != nil || days <= 0 || days > 3650 {
-		days = defaultDays
-	}
-	f := filterForm{Repo: r.URL.Query().Get("repo"), Days: days}
-	f.Repos, err = u.Store.Repositories(r.Context())
-	return store.Filter{Repository: f.Repo, Since: time.Now().AddDate(0, 0, -days)}, f, err
-}
 
 func (u *UI) home(w http.ResponseWriter, r *http.Request) {
 	to := "/stats/runs"
@@ -71,16 +53,11 @@ func trendsRedirect(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/stats/trends?"+to.Encode(), http.StatusFound)
 }
 
+// sizing sends the old page to the dashboard's, with its query.
 func (u *UI) sizing(w http.ResponseWriter, r *http.Request) {
-	f, form, err := u.filter(r, 30)
-	if err != nil {
-		u.fail(w, err)
-		return
+	to := "/stats/sizing"
+	if r.URL.RawQuery != "" {
+		to += "?" + r.URL.RawQuery
 	}
-	rows, err := u.Store.Sizing(r.Context(), f)
-	if err != nil {
-		u.fail(w, err)
-		return
-	}
-	u.render(w, "sizing", map[string]any{"Filter": form, "Rows": rows, "GitHubURL": u.GitHubURL})
+	http.Redirect(w, r, to, http.StatusFound)
 }

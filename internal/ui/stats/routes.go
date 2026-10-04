@@ -9,4 +9,5 @@ var routes = []route{
 	{"/stats/trends", "Trends", (*Server).trends},
 	{"/stats/steps", "Steps", (*Server).steps},
 	{"/stats/spend", "Spend", (*Server).spend},
+	{"/stats/sizing", "Sizing", (*Server).sizing},
 }

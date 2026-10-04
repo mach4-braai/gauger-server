@@ -4,10 +4,8 @@ package ui
 import (
 	"bytes"
 	"embed"
-	"fmt"
 	"html/template"
 	"log/slog"
-	"maps"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -43,7 +41,7 @@ type UI struct {
 
 func (u *UI) Handler() http.Handler {
 	u.pages = map[string]*template.Template{}
-	for _, name := range []string{"setup", "setup_redirect", "sizing"} {
+	for _, name := range []string{"setup", "setup_redirect"} {
 		u.pages[name] = template.Must(template.New("layout.html").Funcs(u.funcs()).
 			ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html"))
 	}
@@ -71,12 +69,12 @@ func (u *UI) Handler() http.Handler {
 	return mux
 }
 
-// funcs returns the shared template funcs plus the ones bound to this UI.
+// funcs returns the template funcs, which are bound to this UI.
 func (u *UI) funcs() template.FuncMap {
-	f := maps.Clone(funcs)
-	f["version"] = func() string { return u.Version }
-	f["versionURL"] = u.versionURL
-	return f
+	return template.FuncMap{
+		"version":    func() string { return u.Version },
+		"versionURL": u.versionURL,
+	}
 }
 
 // versionURL links a commit-hash Version to its commit, or is empty.
@@ -88,36 +86,6 @@ func (u *UI) versionURL() string {
 }
 
 var shaRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
-
-var funcs = template.FuncMap{
-	"gib": func(v *float64) string {
-		return optional(v, func(x float64) string { return fmt.Sprintf("%.2f GiB", x/(1<<30)) })
-	},
-	"pct": func(v *float64) string {
-		return optional(v, func(x float64) string { return fmt.Sprintf("%.0f%%", x*100) })
-	},
-	"ratio": func(num, den *float64) string {
-		if num == nil || den == nil || *den == 0 {
-			return ""
-		}
-		return fmt.Sprintf("%.0f%%", *num / *den * 100)
-	},
-	"cores": func(util, n *float64) string {
-		if util == nil || n == nil {
-			return ""
-		}
-		return fmt.Sprintf("%.1f of %.0f", *util**n, *n)
-	},
-	"workflowURL": github.WorkflowURL,
-	"stepURL":     github.StepURL,
-}
-
-func optional(v *float64, f func(float64) string) string {
-	if v == nil {
-		return ""
-	}
-	return f(*v)
-}
 
 func (u *UI) render(w http.ResponseWriter, page string, data any) {
 	var buf bytes.Buffer

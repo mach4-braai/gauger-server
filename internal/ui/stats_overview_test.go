@@ -265,14 +265,3 @@ func TestDatastarScriptIsTheVendoredFile(t *testing.T) {
 		t.Error("the page is not gzipped")
 	}
 }
-
-func TestTemplatePagesRenderOverFixtures(t *testing.T) {
-	st := storetest.Open(t, 90*24*time.Hour)
-	fx := storetest.Seed(t, st)
-	h := dashboard(st, fx.Now)
-	for _, url := range []string{
-		"/sizing",
-	} {
-		get(t, h, url)
-	}
-}
