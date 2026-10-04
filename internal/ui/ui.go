@@ -44,7 +44,7 @@ type UI struct {
 
 func (u *UI) Handler() http.Handler {
 	u.pages = map[string]*template.Template{}
-	for _, name := range []string{"setup", "setup_redirect", "steps", "regressions", "daily", "sizing", "spend"} {
+	for _, name := range []string{"setup", "setup_redirect", "steps", "sizing", "spend"} {
 		u.pages[name] = template.Must(template.New("layout.html").Funcs(u.funcs()).
 			ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html"))
 	}
@@ -52,8 +52,8 @@ func (u *UI) Handler() http.Handler {
 	mux.HandleFunc("GET /{$}", u.home)
 	mux.HandleFunc("GET /jobs/{id}", u.job)
 	mux.HandleFunc("GET /steps", u.steps)
-	mux.HandleFunc("GET /regressions", u.regressions)
-	mux.HandleFunc("GET /daily", u.daily)
+	mux.HandleFunc("GET /regressions", trendsRedirect)
+	mux.HandleFunc("GET /daily", trendsRedirect)
 	mux.HandleFunc("GET /sizing", u.sizing)
 	mux.HandleFunc("GET /spend", u.spend)
 	mux.HandleFunc("GET /setup", u.setup)
@@ -89,7 +89,6 @@ var shaRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
 var funcs = template.FuncMap{
 	"secs": func(s float64) string { return fmtDuration(time.Duration(s * float64(time.Second))) },
-	"day":  func(t time.Time) string { return t.UTC().Format("2006-01-02") },
 	"gib": func(v *float64) string {
 		return optional(v, func(x float64) string { return fmt.Sprintf("%.2f GiB", x/(1<<30)) })
 	},
@@ -108,7 +107,6 @@ var funcs = template.FuncMap{
 		}
 		return fmt.Sprintf("%.1f of %.0f", *util**n, *n)
 	},
-	"times": func(a, b float64) string { return fmt.Sprintf("%.2f×", a/b) },
 	"usd":   func(v float64) string { return fmt.Sprintf("$%.2f", v) },
 	"join":  strings.Join,
 	"month": func(t time.Time) string { return t.UTC().Format("2006-01") },
@@ -122,7 +120,6 @@ var funcs = template.FuncMap{
 		return ""
 	},
 	"workflowURL": github.WorkflowURL,
-	"branchURL":   github.BranchURL,
 	"stepURL":     github.StepURL,
 }
 
