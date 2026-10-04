@@ -1,0 +1,190 @@
+package stats
+
+import (
+	"strconv"
+
+	"github.com/mach4-braai/gauger-server/internal/ui/chart"
+)
+
+templ runsIcon() {
+	@icon() {
+		<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path>
+	}
+}
+
+templ runsSearchIcon() {
+	@icon() {
+		<circle cx="11" cy="11" r="8"></circle>
+		<path d="m21 21-4.3-4.3"></path>
+	}
+}
+
+templ runsFilterIcon() {
+	@icon() {
+		<path d="M10 20a1 1 0 0 0 .553.895l2 1A1 1 0 0 0 14 21v-7a2 2 0 0 1 .517-1.341L21.74 4.67A1 1 0 0 0 21 3H3a1 1 0 0 0-.742 1.67l7.225 7.989A2 2 0 0 1 10 14z"></path>
+	}
+}
+
+templ runsClearIcon() {
+	@icon() {
+		<path d="M18 6 6 18"></path>
+		<path d="m6 6 12 12"></path>
+	}
+}
+
+templ runsPage(v runsView) {
+	@pageHeader("Runs", v.Description)
+	if v.NoRepos {
+		@card("", "") {
+			<div class="empty">
+				@inboxIcon()
+				<div class="empty-title">No jobs yet</div>
+				<div class="empty-hint">Install the GitHub App from <a href="/setup">Setup</a> and run a workflow.</div>
+			</div>
+		}
+	} else {
+		@card("Jobs", v.bucketLabel()+", by conclusion. Click a bucket to list its jobs.") {
+			@chart.TimeChart(v.Chart)
+			<div style="margin-top: 12px">
+				@chart.Legend(v.Legend)
+			</div>
+		}
+		<section class="card rise">
+			<div class="card-body" style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+				<div class="search">
+					@runsSearchIcon()
+					<input
+						class="input"
+						type="search"
+						name="q"
+						form={ chart.Form }
+						value={ v.Search }
+						placeholder="Search workflow, job or branch"
+						aria-label="Search workflow, job or branch"
+						autocomplete="off"
+						data-ignore-morph
+						data-on:input__debounce.300ms={ applyFilters }
+					/>
+				</div>
+				<div class="segmented" role="radiogroup" aria-label="Conclusion" data-size="sm">
+					for _, o := range v.Outcomes {
+						<label class="segmented-option">
+							<input type="radio" form={ chart.Form } name="outcome" value={ o.Key } checked?={ o.Key == v.Outcome }/>
+							{ o.Label }
+						</label>
+					}
+				</div>
+				for _, c := range v.Carry {
+					<input type="hidden" form={ chart.Form } name={ c.Name } value={ c.Value }/>
+				}
+				for _, c := range v.Chips {
+					<a class="badge" href={ c.Clear } data-nav title="Remove this filter">
+						{ c.Label }
+						@runsClearIcon()
+					</a>
+				}
+			</div>
+			if len(v.Rows) == 0 {
+				@emptyState("No jobs match", "Widen the range or remove a filter.")
+			} else {
+				<div class="table-wrap">
+					<table class="table" data-dense="true">
+						<thead>
+							<tr>
+								for _, c := range v.Columns {
+									if c.Href == "" {
+										<th
+											if c.Align != "" {
+												data-align={ c.Align }
+											}
+										>{ c.Label }</th>
+									} else {
+										<th
+											data-sortable="true"
+											data-sorted?={ c.Active }
+											if c.Align != "" {
+												data-align={ c.Align }
+											}
+										>
+											<a href={ c.Href } data-nav style="color: inherit; text-decoration: none">
+												{ c.Label }
+												if c.Arrow != "" {
+													<span class="sort-arrow">{ c.Arrow }</span>
+												}
+											</a>
+										</th>
+									}
+								}
+							</tr>
+						</thead>
+						<tbody>
+							for _, row := range v.Rows {
+								@runsRowView(row)
+							}
+						</tbody>
+					</table>
+				</div>
+				<div class="table-more">
+					if v.Prev != "" {
+						<a class="btn" data-size="sm" href={ v.Prev } data-nav>Previous</a>
+					}
+					<span class="micro">{ v.Showing }</span>
+					if v.Next != "" {
+						<a class="btn" data-size="sm" href={ v.Next } data-nav>Next</a>
+					}
+				</div>
+			}
+		</section>
+	}
+}
+
+templ runsRowView(row runsRow) {
+	<tr>
+		<td class="num">{ row.Started }</td>
+		<td>{ row.Repository }</td>
+		<td>
+			if row.WorkflowURL != "" {
+				<a href={ row.WorkflowURL }>{ row.Workflow }</a>
+			} else {
+				{ row.Workflow }
+			}
+			if row.WorkflowFilter != "" {
+				@runsRowFilter(row.WorkflowFilter, "Only workflow "+row.Workflow)
+			}
+		</td>
+		<td><a href={ row.Href }>{ row.Job }</a></td>
+		<td class="num">
+			<a href={ row.RunURL }>{ row.Run }</a>
+			if row.Attempt > 1 {
+				<span class="muted">· attempt { strconv.Itoa(row.Attempt) }</span>
+			}
+		</td>
+		<td class="num">
+			if row.Commit != "" {
+				<a href={ row.CommitURL }>{ row.Commit }</a>
+			}
+		</td>
+		<td>
+			if row.Branch != "" {
+				<a href={ row.BranchURL }>{ row.Branch }</a>
+				@runsRowFilter(row.BranchFilter, "Only branch "+row.Branch)
+			}
+		</td>
+		<td>{ row.Event }</td>
+		<td><span class="badge" data-tone={ runsTone(row.Outcome) }>{ row.Result }</span></td>
+		<td class="num" data-align="right">{ row.Duration }</td>
+		<td class="num" data-align="right">{ row.Queue }</td>
+		<td class="num" data-align="right">
+			{ row.Samples }
+			if row.FromArtifact {
+				<span class="muted">(artifact)</span>
+			}
+		</td>
+	</tr>
+}
+
+templ runsRowFilter(href, label string) {
+	<a class="btn" data-variant="ghost" data-icon="true" data-size="sm" href={ href } data-nav title={ label } aria-label={ label }>
+		@runsFilterIcon()
+	</a>
+}

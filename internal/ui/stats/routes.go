@@ -5,4 +5,5 @@ package stats
 var routes = []route{
 	{"/stats/{$}", "Overview", (*Server).overview},
 	{"/stats/jobs/{id}", "Job", (*Server).job},
+	{"/stats/runs", "Runs", (*Server).runs},
 }

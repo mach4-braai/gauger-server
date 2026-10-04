@@ -150,6 +150,5 @@ This only covers jobs with gauger samples, so the page has to say so.
 
 ## Open questions
 
-- Should `/stats` replace the nav entry for Recent jobs as the home page, or sit next to it?
 - Should the waste and saving estimates be priced in dollars when most of the repos are public and free on standard runners?
 - Is a 90-day sample retention enough once resource trends are on the page?
