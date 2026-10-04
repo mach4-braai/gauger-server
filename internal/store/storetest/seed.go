@@ -42,6 +42,9 @@ type Fixtures struct {
 	LightPrivateJob, LightPublicJob, LightMacJob int64
 	// FailedTwiceSHA has a job that failed on attempt 1 and again on attempt 2.
 	FailedTwiceSHA string
+	// ResourcesJob is the only sampled job on its runner labels and in its
+	// workflow.
+	ResourcesJob int64
 }
 
 // Seed fills st with the dashboard fixtures, anchored at the current time.
@@ -69,6 +72,7 @@ func Fill(ctx context.Context, st *store.Store, now time.Time) (Fixtures, error)
 	s.capacity()
 	s.failureCases()
 	s.waste()
+	s.resources()
 	return s.fx, s.insert(ctx, st)
 }
 
