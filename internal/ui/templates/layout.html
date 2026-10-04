@@ -44,10 +44,3 @@ form.filters label { margin-right: 12px; }
 </main>
 </body>
 </html>
-{{define "filters"}}
-<label>Repository <select name="repo">
-<option value="">all</option>
-{{range .Repos}}<option{{if eq . $.Repo}} selected{{end}}>{{.}}</option>{{end}}
-</select></label>
-<label>Days <input name="days" type="number" min="1" value="{{.Days}}" style="width:5em"></label>
-{{end}}

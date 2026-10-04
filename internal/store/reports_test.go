@@ -106,7 +106,7 @@ func TestSizingUsesRunnerSamplesInsideEachStep(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rows, err := st.Sizing(ctx, store.Filter{Since: start.Add(-time.Hour)})
+	rows, err := st.Sizing(ctx, store.Filter{Since: start.Add(-time.Hour), Until: start.Add(3 * time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -484,7 +484,7 @@ func TestSizingTieBreakPicksOneOccurrence(t *testing.T) {
 		}
 	}
 
-	rows, err := st.Sizing(ctx, store.Filter{Since: start.Add(-time.Hour)})
+	rows, err := st.Sizing(ctx, store.Filter{Since: start.Add(-time.Hour), Until: start.Add(time.Hour)})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,167 @@
+package stats
+
+import "strconv"
+
+templ sizingIcon() {
+	@icon() {
+		<path d="m12 14 4-4"></path>
+		<path d="M3.34 19a10 10 0 1 1 17.32 0"></path>
+	}
+}
+
+templ sizingPage(v sizingView) {
+	@pageHeader("Sizing", v.Description)
+	@statGrid(190) {
+		for _, t := range v.Tiles {
+			@stat(t)
+		}
+	}
+	@card("Runner labels", "Sampled jobs that went over 50% of the CPU or of the memory at any sample.") {
+		if len(v.Labels) == 0 {
+			@emptyState("No sampled jobs in this range", "Sizing needs jobs that gauger reported runner samples for.")
+		} else {
+			<div class="table-wrap">
+				<table class="table" id="sizing-labels">
+					<thead>
+						<tr>
+							<th>Runner label</th>
+							<th data-align="right">Sampled jobs</th>
+							<th data-align="right">Over 50% CPU</th>
+							<th data-align="right">Over 50% memory</th>
+							<th data-align="right">Over either</th>
+							<th data-align="right">Candidates</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, l := range v.Labels {
+							<tr data-label={ l.Label }>
+								<td class="mono">{ l.Label }</td>
+								<td class="num" data-align="right" data-col="jobs">{ strconv.FormatInt(l.Jobs, 10) }</td>
+								<td class="num" data-align="right" data-col="cpu">{ strconv.FormatInt(l.CPU, 10) }</td>
+								<td class="num" data-align="right" data-col="memory">{ strconv.FormatInt(l.Memory, 10) }</td>
+								<td class="num" data-align="right" data-col="either">{ strconv.FormatInt(l.Either, 10) }</td>
+								<td class="num" data-align="right" data-col="candidates">{ strconv.FormatInt(l.Candidates, 10) }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+	@card("Jobs", "A job is a candidate for a smaller runner when its peak CPU and peak memory both stay at or under 50%.") {
+		if len(v.Jobs) == 0 {
+			@emptyState("No sampled jobs in this range", "")
+		} else {
+			<div class="table-wrap">
+				<table class="table" id="sizing-jobs" data-dense="true">
+					<thead>
+						<tr>
+							<th>Job</th>
+							<th>Workflow</th>
+							<th>Repository</th>
+							<th>Label</th>
+							<th data-align="right">Minutes</th>
+							<th data-align="right">Peak memory</th>
+							<th data-align="right">of MemTotal</th>
+							<th data-align="right">Peak CPU</th>
+							<th data-align="right">p95 CPU</th>
+							<th>Verdict</th>
+							<th>Smaller label</th>
+							<th data-align="right">Saving</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, j := range v.Jobs {
+							<tr id={ "sizing-job-" + strconv.FormatInt(j.ID, 10) } data-candidate={ strconv.FormatBool(j.Candidate) }>
+								<td><a href={ templ.SafeURL("/stats/jobs/" + strconv.FormatInt(j.ID, 10)) } data-nav>{ j.Name }</a></td>
+								<td>
+									if j.WorkflowURL != "" {
+										<a href={ templ.SafeURL(j.WorkflowURL) }>{ j.Workflow }</a>
+									} else {
+										{ j.Workflow }
+									}
+								</td>
+								<td>{ j.Repository }</td>
+								<td class="mono">{ j.Label }</td>
+								<td class="num" data-align="right" data-col="minutes">{ j.Minutes }</td>
+								<td class="num" data-align="right" data-col="memory">{ j.Memory }</td>
+								<td class="num" data-align="right" data-col="memory-of">{ j.MemoryOf }</td>
+								<td class="num" data-align="right" data-col="cpu-peak">{ j.CPUPeak }</td>
+								<td class="num" data-align="right" data-col="cpu-p95">{ j.CPUP95 }</td>
+								<td data-col="verdict">
+									if j.Candidate {
+										<span class="badge" data-tone="ok">Candidate</span>
+									} else {
+										<span class="badge">Keep</span>
+									}
+								</td>
+								<td class="mono" data-col="smaller">{ j.Smaller }</td>
+								<td
+									class="num"
+									data-align="right"
+									data-col="saving"
+									if j.SavingWhy != "" {
+										title={ j.SavingWhy }
+									}
+								>{ j.Saving }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+			if v.JobsShown != "" {
+				<p class="muted" style="margin-top: 12px">{ v.JobsShown }</p>
+			}
+		}
+	}
+	@card("Steps", "Runner-level values during each step's time window, not the step's own usage. Anything else running on the runner at the same time counts too.") {
+		if len(v.Steps) == 0 {
+			@emptyState("No steps with gauger samples in this range", "")
+		} else {
+			<div class="table-wrap">
+				<table class="table" id="sizing-steps" data-dense="true">
+					<thead>
+						<tr>
+							<th>Repository</th>
+							<th>Workflow</th>
+							<th>Job</th>
+							<th>Step</th>
+							<th data-align="right">Runs</th>
+							<th data-align="right">Peak memory</th>
+							<th data-align="right">of MemTotal</th>
+							<th data-align="right">Peak CPU (cores)</th>
+							<th data-align="right">Time at 90% CPU or more</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, s := range v.Steps {
+							<tr data-job={ strconv.FormatInt(s.JobID, 10) } data-step={ strconv.Itoa(s.StepNumber) }>
+								<td>{ s.Repository }</td>
+								<td>
+									if s.WorkflowURL != "" {
+										<a href={ templ.SafeURL(s.WorkflowURL) }>{ s.Workflow }</a>
+									} else {
+										{ s.Workflow }
+									}
+								</td>
+								<td><a href={ templ.SafeURL("/stats/jobs/" + strconv.FormatInt(s.JobID, 10)) } data-nav>{ s.Job }</a></td>
+								<td>
+									if s.StepURL != "" {
+										<a href={ templ.SafeURL(s.StepURL) }>{ s.Step }</a>
+									} else {
+										{ s.Step }
+									}
+								</td>
+								<td class="num" data-align="right" data-col="runs">{ s.Runs }</td>
+								<td class="num" data-align="right" data-col="memory">{ s.PeakMemory }</td>
+								<td class="num" data-align="right" data-col="memory-of">{ s.MemoryOf }</td>
+								<td class="num" data-align="right" data-col="cpu">{ s.PeakCPU }</td>
+								<td class="num" data-align="right" data-col="saturated">{ s.Saturated }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+}

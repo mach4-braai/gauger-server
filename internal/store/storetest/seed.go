@@ -36,6 +36,10 @@ type Fixtures struct {
 	PRWorkflows []string
 	// UnratedJob is a completed job on a runner label with no known rate.
 	UnratedJob int64
+	// LightPrivateJob and LightPublicJob are ubuntu-latest jobs that stay
+	// under 40% of their runner, in a private and a public repository.
+	// LightMacJob is the same on macos-latest, which has no smaller label.
+	LightPrivateJob, LightPublicJob, LightMacJob int64
 }
 
 // Seed fills st with the dashboard fixtures, anchored at the current time.
@@ -58,6 +62,7 @@ func Fill(ctx context.Context, st *store.Store, now time.Time) (Fixtures, error)
 	s.trends()
 	s.actionRefs()
 	s.spend()
+	s.sizing()
 	return s.fx, s.insert(ctx, st)
 }
 

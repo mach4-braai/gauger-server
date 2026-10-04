@@ -15,6 +15,7 @@ type navItem struct {
 var nav = []navItem{
 	{"Usage", "/stats/", "Overview", overviewIcon},
 	{"Usage", "/stats/spend", "Spend", spendIcon},
+	{"Usage", "/stats/sizing", "Sizing", sizingIcon},
 	{"Activity", "/stats/runs", "Runs", runsIcon},
 	{"Performance", "/stats/trends", "Trends", trendsIcon},
 	{"Performance", "/stats/steps", "Steps", stepsIcon},

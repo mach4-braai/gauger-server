@@ -88,15 +88,83 @@ func (r Rates) Price(labels []string, private *bool, minutes int64) Price {
 	if slices.Contains(labels, "self-hosted") {
 		return Price{Free: true, Known: true}
 	}
-	for _, l := range labels {
-		rate, ok := r[l]
-		if !ok {
-			continue
-		}
-		if rate.Standard && private != nil && !*private {
-			return Price{Rate: rate.PerMinute, Free: true, Known: true}
-		}
-		return Price{Cost: float64(minutes) * rate.PerMinute, Rate: rate.PerMinute, Known: true}
+	label := r.Label(labels)
+	if label == "" {
+		return Price{}
 	}
-	return Price{}
+	rate := r[label]
+	if rate.Standard && private != nil && !*private {
+		return Price{Rate: rate.PerMinute, Free: true, Known: true}
+	}
+	return Price{Cost: float64(minutes) * rate.PerMinute, Rate: rate.PerMinute, Known: true}
+}
+
+// smaller names the next smaller runner for each label, from the order
+// of sizes per OS: ubuntu-slim < ubuntu-*, and macos-* < macos-*-large <
+// macos-*-xlarge on the same image. Windows and arm have one size, and
+// labels added with ParseRates have no known order.
+var smaller = map[string]string{
+	"ubuntu-latest": "ubuntu-slim",
+	"ubuntu-26.04":  "ubuntu-slim",
+	"ubuntu-24.04":  "ubuntu-slim",
+	"ubuntu-22.04":  "ubuntu-slim",
+
+	"macos-latest-large": "macos-latest",
+	"macos-26-large":     "macos-26",
+	"macos-15-large":     "macos-15",
+	"macos-14-large":     "macos-14",
+
+	"macos-latest-xlarge": "macos-latest-large",
+	"macos-26-xlarge":     "macos-26-large",
+	"macos-15-xlarge":     "macos-15-large",
+	"macos-14-xlarge":     "macos-14-large",
+}
+
+// Smaller returns the next smaller runner label than label, if there is
+// one.
+func Smaller(label string) (string, bool) {
+	s, ok := smaller[label]
+	return s, ok
+}
+
+// Label returns the first of labels that has a rate, or "".
+func (r Rates) Label(labels []string) string {
+	for _, l := range labels {
+		if _, ok := r[l]; ok {
+			return l
+		}
+	}
+	return ""
+}
+
+// Downsize is what running the same minutes on the next smaller runner
+// would cost less.
+type Downsize struct {
+	// Label is the next smaller runner, empty when there is none.
+	Label string
+	// Saving is in USD and meaningful only when Priced is set. It is not
+	// set when the minutes were free, or when there is no smaller runner
+	// with a rate.
+	Saving float64
+	Priced bool
+}
+
+// Downsize prices minutes on labels against the same minutes on the next
+// smaller label for the first label with a rate.
+func (r Rates) Downsize(labels []string, private *bool, minutes int64) Downsize {
+	label := r.Label(labels)
+	if slices.Contains(labels, "self-hosted") || label == "" {
+		return Downsize{}
+	}
+	small, ok := Smaller(label)
+	if !ok {
+		return Downsize{}
+	}
+	d := Downsize{Label: small}
+	now := r.Price(labels, private, minutes)
+	less := r.Price([]string{small}, private, minutes)
+	if now.Known && less.Known && !now.Free {
+		d.Saving, d.Priced = now.Cost-less.Cost, true
+	}
+	return d
 }

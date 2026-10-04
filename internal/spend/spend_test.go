@@ -33,6 +33,69 @@ func TestPrice(t *testing.T) {
 
 func near(a, b float64) bool { return a-b < 1e-9 && b-a < 1e-9 }
 
+func TestSmaller(t *testing.T) {
+	for _, tc := range []struct {
+		label, want string
+		ok          bool
+	}{
+		{"ubuntu-latest", "ubuntu-slim", true},
+		{"ubuntu-22.04", "ubuntu-slim", true},
+		{"ubuntu-slim", "", false},
+		{"ubuntu-24.04-arm", "", false},
+		{"windows-latest", "", false},
+		{"macos-15", "", false},
+		{"macos-15-large", "macos-15", true},
+		{"macos-latest-xlarge", "macos-latest-large", true},
+		{"linux-8-core", "", false},
+		{"", "", false},
+	} {
+		got, ok := Smaller(tc.label)
+		if got != tc.want || ok != tc.ok {
+			t.Errorf("Smaller(%q) = %q, %v; want %q, %v", tc.label, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+func TestSmallerLabelsAreRatedAndCheaper(t *testing.T) {
+	for label, small := range smaller {
+		big, ok := DefaultRates[label]
+		if !ok {
+			t.Errorf("%s has no rate", label)
+		}
+		little, ok := DefaultRates[small]
+		if !ok {
+			t.Errorf("%s has no rate", small)
+		}
+		if little.PerMinute >= big.PerMinute {
+			t.Errorf("%s (%v) is not cheaper than %s (%v)", small, little.PerMinute, label, big.PerMinute)
+		}
+	}
+}
+
+func TestDownsize(t *testing.T) {
+	public, private := new(false), new(true)
+	for _, tc := range []struct {
+		name    string
+		labels  []string
+		private *bool
+		minutes int64
+		want    Downsize
+	}{
+		{"private standard", []string{"ubuntu-latest"}, private, 10, Downsize{Label: "ubuntu-slim", Saving: 0.04, Priced: true}},
+		{"unknown visibility is billed", []string{"ubuntu-latest"}, nil, 10, Downsize{Label: "ubuntu-slim", Saving: 0.04, Priced: true}},
+		{"public standard is free", []string{"ubuntu-latest"}, public, 10, Downsize{Label: "ubuntu-slim"}},
+		{"public larger runner saves all of its cost", []string{"macos-15-large"}, public, 10, Downsize{Label: "macos-15", Saving: 0.77, Priced: true}},
+		{"no smaller label", []string{"windows-latest"}, private, 10, Downsize{}},
+		{"self-hosted", []string{"self-hosted", "ubuntu-latest"}, private, 10, Downsize{}},
+		{"unknown label", []string{"my-runner"}, private, 10, Downsize{}},
+	} {
+		got := Rates(DefaultRates).Downsize(tc.labels, tc.private, tc.minutes)
+		if got.Label != tc.want.Label || got.Priced != tc.want.Priced || !near(got.Saving, tc.want.Saving) {
+			t.Errorf("%s: got %+v, want %+v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestParseRatesRejectsGarbage(t *testing.T) {
 	for _, s := range []string{"ubuntu-latest", "=0.1", "x=-1", "x=abc"} {
 		if _, err := ParseRates(s); err == nil {

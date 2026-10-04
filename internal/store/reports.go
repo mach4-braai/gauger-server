@@ -262,32 +262,33 @@ type Sizing struct {
 	JobHTMLURL string
 }
 
-// Sizing reports, per step, the runner's peak memory against MemTotal and
-// its CPU use against nproc during the step's time window, with the job
-// and step number of the occurrence with the peak memory.
+// Sizing reports, per step of the jobs in the filter's window, the
+// runner's peak memory against MemTotal and its CPU use against nproc
+// during the step's time window, with the job and step number of the
+// occurrence with the peak memory.
 func (s *Store) Sizing(ctx context.Context, f Filter) ([]Sizing, error) {
 	rows, err := s.Pool.Query(ctx, `
-		WITH win AS (
+		WITH`+windowed+`,
+		win AS (
 			SELECT j.repository, coalesce(j.workflow_name, '') AS workflow, coalesce(j.name, '') AS job,
 				w.name AS step, w.job_id, w.number, w.started_at, w.ends_at
 			FROM (`+stepWindows+`
-				WHERE s.started_at >= $1 AND s.completed_at IS NOT NULL
-			) w JOIN jobs j ON j.id = w.job_id
-			WHERE ($2 = '' OR j.repository = $2)
-			  AND EXISTS (SELECT 1 FROM samples x WHERE x.job_id = w.job_id)
+				WHERE s.completed_at IS NOT NULL AND s.job_id IN (SELECT id FROM fj)
+			) w JOIN fj j ON j.id = w.job_id
+			WHERE EXISTS (SELECT 1 FROM samples x WHERE x.job_id = w.job_id)
 		),
 		occ AS (
 			SELECT w.repository, w.workflow, w.job, w.step, w.job_id, w.number,
-				max(m.value) FILTER (WHERE m.metric = $3 AND m.series = $4) AS peak_mem,
+				max(m.value) FILTER (WHERE m.metric = $5 AND m.series = $6) AS peak_mem,
 				max(k.mem_total) AS mem_total,
-				max(m.value) FILTER (WHERE m.metric = $5 AND m.series = '') AS peak_cpu,
-				avg(CASE WHEN m.value >= $8 THEN 1.0 ELSE 0.0 END) FILTER (WHERE m.metric = $5 AND m.series = '') AS saturated,
+				max(m.value) FILTER (WHERE m.metric = $7 AND m.series = '') AS peak_cpu,
+				avg(CASE WHEN m.value >= $10 THEN 1.0 ELSE 0.0 END) FILTER (WHERE m.metric = $7 AND m.series = '') AS saturated,
 				max(k.cpus) AS cpus
 			FROM win w
 			JOIN samples m ON m.job_id = w.job_id AND m.ts >= w.started_at AND m.ts < w.ends_at
 			CROSS JOIN LATERAL (
-				SELECT max(value) FILTER (WHERE metric = $6) AS mem_total, max(value) FILTER (WHERE metric = $7) AS cpus
-				FROM samples WHERE job_id = w.job_id AND metric IN ($6, $7)
+				SELECT max(value) FILTER (WHERE metric = $8) AS mem_total, max(value) FILTER (WHERE metric = $9) AS cpus
+				FROM samples WHERE job_id = w.job_id AND metric IN ($8, $9)
 			) k
 			GROUP BY 1, 2, 3, 4, 5, 6
 		),`+workflowPath+`
@@ -302,8 +303,8 @@ func (s *Store) Sizing(ctx context.Context, f Filter) ([]Sizing, error) {
 		LEFT JOIN jobs jb ON jb.id = occ.job_id
 		GROUP BY occ.repository, occ.workflow, occ.job, occ.step
 		ORDER BY max(occ.peak_mem) / nullif(max(occ.mem_total), 0) DESC NULLS LAST
-		LIMIT 300`, f.Since, f.Repository, MetricMemoryUsage, SeriesMemoryUsed, MetricCPUUtilization,
-		MetricMemoryLimit, MetricCPUCount, saturatedCPU)
+		LIMIT 300`, f.args(MetricMemoryUsage, SeriesMemoryUsed, MetricCPUUtilization,
+		MetricMemoryLimit, MetricCPUCount, saturatedCPU)...)
 	if err != nil {
 		return nil, err
 	}
