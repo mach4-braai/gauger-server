@@ -16,9 +16,10 @@ Self-hosted server and web UI that joins GitHub Actions webhook timings with [ga
 - Repairs missed deliveries from the REST API. Every run gets a check 10 minutes after its last unfinished event and a minute after it completes. The check stores the run attempt and all its jobs. This work lives in Postgres, so it survives a restart.
 - Spends at most 5,000 REST requests an hour per installation, and waits out `x-ratelimit-reset` and `retry-after`.
 - Accepts runner data on `:4318` only when `WhoIs` says the peer is `tag:gauger-ci` and the bearer token is a GitHub Actions OIDC token with `aud` `gauger-server`, an unexpired `exp` and the configured `repository_owner_id`. Each request is checked on its own, so gauger can switch tokens mid-job.
+- Binds each runner request to the job its token was issued to. Every identity in the body must match the token's `repository`, `run_id`, `run_attempt` and `check_run_id` claims, or the request gets `403` and nothing is stored.
 - Backfills history from before the App was installed. A backfill task per repository lists completed runs with `GET /actions/runs?created=...` and queues a `run` task for each one's latest attempt; GitHub returns only the latest attempt, so earlier attempts of a re-run are not backfilled. `/setup` queues a backfill of the last N days (90 by default) for every repository with an installation. Running the same backfill twice adds no rows: runs, jobs and steps upsert on their IDs, and tasks upsert on `(kind, key)`.
 - Stores a job as `pending` on `start` or its first batch, then polls `GET /actions/jobs/{id}` with backoff until it completes and records the step timings. If the job completes without `done`, it looks for the `gauger-<check_run_id>` artifact until it appears or 7 days pass. When a run completes, it starts the same search for every completed job of the run without `done` or an ingested artifact, including jobs whose gauger never reached the server.
-- Joins both sources on `run_id`, `run_attempt` and `check_run_id`. Without `check_run_id`, it matches `runner.name` to the job that runner was running.
+- Joins both sources on `run_id`, `run_attempt` and `check_run_id`. Without `check_run_id` in the body, it uses the token's `check_run_id` claim.
 - Keeps samples in daily partitions and drops a whole partition once it falls outside the retention window.
 
 ## Web UI
@@ -35,10 +36,10 @@ Self-hosted server and web UI that joins GitHub Actions webhook timings with [ga
 This contract is shared with [gauger](https://github.com/mach4-braai/gauger). Change it in both repos together.
 
 - Every request carries `Authorization: Bearer <GitHub OIDC JWT>` with audience `gauger-server`.
-- `POST /v1/jobs/start` and `POST /v1/jobs/done` take a JSON object whose keys are the identity attributes below. Values may be strings or numbers. An optional `time` (RFC 3339) says when the event happened; it defaults to when the request arrives. The reply is `{"job_id": <id>}`.
+- `POST /v1/jobs/start` and `POST /v1/jobs/done` take a JSON object whose keys are the identity attributes below. Values may be strings or numbers. The reply is `{"job_id": <id>}`.
 - `POST /v1/metrics` takes OTLP/HTTP metrics as protobuf or JSON, optionally gzip-compressed. Gauge and sum points are stored. Repeated points (same job, metric, attributes and time) are ignored, so replaying a buffer is safe.
-- Identity attributes go on the resource or on each data point: `github.run_id`, `github.run_attempt`, `github.check_run_id`, `github.repository`, `github.workflow`, `github.job` and `runner.name`. `github.check_run_id` may be empty when `runner.name` is set.
-- A `503` with `Retry-After` means the server does not know the job yet or GitHub is rate limiting it. Keep the data buffered and retry.
+- Identity attributes go on the resource or on each data point: `github.run_id`, `github.run_attempt`, `github.check_run_id`, `github.repository`, `github.workflow`, `github.job` and `runner.name`. `github.check_run_id` may be empty; the server then uses the token's claim.
+- The identity must name the job the token was issued to. A `403` means it named another one. Keep the data buffered and retry, so it ends up in the fallback artifact.
 - The fallback artifact `gauger-<check_run_id>` holds one file per unsent batch, each an `ExportMetricsServiceRequest` in protobuf.
 - The reports read these metric shapes. A client that sends another shape gets wrong numbers, so changing one is a contract change.
   - Every point of one sample has the same timestamp. Sample counts are distinct timestamps.
