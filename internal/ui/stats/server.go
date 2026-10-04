@@ -72,7 +72,12 @@ func (s *Server) now() time.Time {
 func (s *Server) page(rt route) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		isDatastar := r.Header.Get("Datastar-Request") == "true"
+		stream := r.URL.Query().Get("live") == "1"
 		r.URL = canonical(r.URL)
+		if stream {
+			s.live(w, r, rt)
+			return
+		}
 		f, sel := s.filter(r)
 		body, err := rt.render(s, r, f)
 		if errors.Is(err, errNotFound) {
@@ -84,7 +89,7 @@ func (s *Server) page(rt route) http.Handler {
 			http.Error(w, "query failed", http.StatusInternalServerError)
 			return
 		}
-		sh := shell{Title: rt.title, Path: r.URL.Path, Sel: sel, Version: s.Version, VersionURL: s.VersionURL, Body: body}
+		sh := shell{Title: rt.title, Path: r.URL.Path, Sel: sel, Live: liveURL(r.URL), Version: s.Version, VersionURL: s.VersionURL, Body: body}
 		if sh.Repos, err = s.Store.Repositories(r.Context()); err == nil {
 			sh.Events, err = s.Store.Events(r.Context())
 		}
@@ -100,6 +105,7 @@ func (s *Server) page(rt route) http.Handler {
 				sse.PatchElementTempl(pageBody(body)),
 				sse.PatchElementTempl(navList(r.URL.Path, sel)),
 				sse.PatchElementTempl(filterBar(sh)),
+				sse.PatchElementTempl(liveStream(sh.Live)),
 				sse.ExecuteScript("history.replaceState(null, '', "+string(to)+")"),
 			)
 			if err != nil {
@@ -123,6 +129,7 @@ func (s *Server) page(rt route) http.Handler {
 func canonical(u *url.URL) *url.URL {
 	q := u.Query()
 	q.Del("datastar")
+	q.Del("live")
 	for k, vs := range q {
 		vs = slices.DeleteFunc(vs, func(v string) bool { return v == "" })
 		if len(vs) == 0 {

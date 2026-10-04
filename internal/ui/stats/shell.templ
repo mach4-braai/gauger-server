@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"encoding/json"
 	"slices"
 
 	"github.com/mach4-braai/gauger-server/internal/ui/chart"
@@ -13,6 +14,7 @@ type shell struct {
 	Sel        selection
 	Repos      []string
 	Events     []string
+	Live       string
 	Version    string
 	VersionURL string
 	Body       templ.Component
@@ -20,6 +22,18 @@ type shell struct {
 
 // navigate follows a[data-nav] links in place; Datastar patches the page.
 const navigate = `const a = evt.target.closest('a[data-nav]'); if (a && evt.button === 0 && !(evt.metaKey || evt.ctrlKey || evt.shiftKey || evt.altKey)) { evt.preventDefault(); @get(a.getAttribute('href')) }`
+
+// liveInit opens a page's event stream. Cleanup cancellation ends the old
+// stream when a navigation gives #live a new URL, and retrying always
+// reconnects after the server closes a stream cleanly, as when it restarts.
+func liveInit(url string) string {
+	u, _ := json.Marshal(url)
+	return "@get(" + string(u) + ", {retry: 'always', requestCancellation: 'cleanup'})"
+}
+
+// liveState maps the events of the #live stream to the chip's state. A
+// patch means the stream is up.
+const liveState = `const d = evt.detail; if (d.el && d.el.id === 'live') { $_live = {'datastar-patch-elements': 'live', 'retrying': 'retrying', 'retries-failed': 'offline'}[d.type] || $_live }`
 
 // refilter reloads the page in place when an input of the filter form
 // changes.
@@ -73,9 +87,11 @@ templ layout(sh shell) {
 					} else if sh.Version != "" {
 						<span class="topbar-version micro mono" title={ "build " + sh.Version }>{ sh.Version }</span>
 					}
+					@liveChip()
 					@themeToggle()
 				</div>
 			</header>
+			@liveStream(sh.Live)
 			<input type="checkbox" id="nav-open" class="nav-open" hidden/>
 			<label for="nav-open" class="drawer-scrim nav-scrim"></label>
 			@navList(sh.Path, sh.Sel)
@@ -94,6 +110,28 @@ templ pageBody(body templ.Component) {
 	<div id="page" class="page" data-class:stale="$_loading">
 		@body
 	</div>
+}
+
+// liveStream is the element whose request is the page's event stream. A
+// Datastar navigation patches it with the new page's URL.
+templ liveStream(url string) {
+	<div id="live" hidden data-init={ liveInit(url) }></div>
+}
+
+// liveChip shows the state of the stream. It stays hidden until the stream
+// first connects.
+templ liveChip() {
+	<span
+		class="live-chip"
+		style="display: none"
+		title="Live updates"
+		data-signals="{_live: ''}"
+		data-show="$_live"
+		data-on:datastar-fetch={ liveState }
+	>
+		<span class="dot" data-attr:data-tone="{live: 'live', retrying: 'warn', offline: 'bad'}[$_live]" data-attr:data-pulse="$_live === 'live' && 'true'"></span>
+		<span data-text="{live: 'Live', retrying: 'Reconnecting', offline: 'Offline'}[$_live]"></span>
+	</span>
 }
 
 // navGroups splits nav into runs of entries that share a group.

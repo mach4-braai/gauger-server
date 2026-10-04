@@ -33,6 +33,9 @@ type Store struct {
 
 	credMu sync.Mutex
 	creds  *github.Credentials
+
+	changeMu sync.Mutex
+	changed  chan struct{}
 }
 
 // Open connects to Postgres, applies pending migrations and makes sure the
@@ -55,6 +58,29 @@ func Open(ctx context.Context, url string, retention time.Duration) (*Store, err
 }
 
 func (s *Store) Close() { s.Pool.Close() }
+
+// Changed returns a channel that closes after the next committed write
+// made through this Store: a transaction from InTx or a statement from
+// Exec or one of the write methods. A reader that wants every change takes
+// the channel before it reads, so a write that lands during the read closes
+// it. Writes made outside this process, such as with psql, don't close it.
+func (s *Store) Changed() <-chan struct{} {
+	s.changeMu.Lock()
+	defer s.changeMu.Unlock()
+	if s.changed == nil {
+		s.changed = make(chan struct{})
+	}
+	return s.changed
+}
+
+func (s *Store) bump() {
+	s.changeMu.Lock()
+	defer s.changeMu.Unlock()
+	if s.changed != nil {
+		close(s.changed)
+		s.changed = nil
+	}
+}
 
 func (s *Store) Retention() time.Duration { return s.retention }
 

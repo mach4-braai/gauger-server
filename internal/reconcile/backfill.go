@@ -44,7 +44,7 @@ func (r *Reconciler) backfillTask(ctx context.Context, t store.Task) (time.Durat
 				continue
 			}
 			key := store.RunKey(runs[i].ID, runs[i].RunAttempt)
-			if err := store.EnqueueTask(ctx, r.Store.Pool, store.KindRun, key, t.Repository, now, expires); err != nil {
+			if err := store.EnqueueTask(ctx, r.Store, store.KindRun, key, t.Repository, now, expires); err != nil {
 				return 0, err
 			}
 		}

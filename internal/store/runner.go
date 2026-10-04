@@ -48,7 +48,7 @@ func scheduleFollowups(ctx context.Context, tx pgx.Tx, jobID int64) error {
 // the run attempt that gauger never said done for, that has no ingested
 // artifact and whose artifact has not expired yet.
 func (s *Store) QueueArtifactSearches(ctx context.Context, runID int64, attempt int) error {
-	_, err := s.Pool.Exec(ctx, `
+	_, err := s.Exec(ctx, `
 		INSERT INTO tasks (kind, key, repository, next_at, expires_at)
 		SELECT $1, id::text, repository, greatest(now(), completed_at + $4 * interval '1 second'), completed_at + interval '7 days'
 		FROM jobs
@@ -111,7 +111,7 @@ func (s *Store) InsertSamples(ctx context.Context, jobID int64, points []runner.
 	if len(ts) == 0 {
 		return rejected, nil
 	}
-	_, err = s.Pool.Exec(ctx, `
+	_, err = s.Exec(ctx, `
 		INSERT INTO samples (job_id, ts, metric, series, value)
 		SELECT $1, * FROM unnest($2::timestamptz[], $3::text[], $4::text[], $5::float8[])
 		ON CONFLICT DO NOTHING`, jobID, ts, metric, series, values)
@@ -140,7 +140,7 @@ func (s *Store) JobState(ctx context.Context, jobID int64) (*JobState, error) {
 }
 
 func (s *Store) MarkArtifactIngested(ctx context.Context, jobID int64) error {
-	_, err := s.Pool.Exec(ctx, `UPDATE jobs SET artifact_ingested_at = now() WHERE id = $1`, jobID)
+	_, err := s.Exec(ctx, `UPDATE jobs SET artifact_ingested_at = now() WHERE id = $1`, jobID)
 	return err
 }
 

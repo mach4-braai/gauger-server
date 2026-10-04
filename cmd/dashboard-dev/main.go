@@ -62,6 +62,7 @@ func run() error {
 	srv := &http.Server{
 		Handler:           (&stats.Server{Store: st, Rates: spend.DefaultRates, GitHubURL: "https://github.com", Version: "dev"}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
+		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}
 	go func() {
 		<-ctx.Done()

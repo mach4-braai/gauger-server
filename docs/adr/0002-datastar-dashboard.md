@@ -26,6 +26,9 @@ omp's dashboard is a React client built with Bun, fed by a JSON API over a SQLit
 - **No Bun, no npm, one Dockerfile.** Nothing in the build needs Node or Bun, and the Dockerfile doesn't change.
 - **Postgres, no rollups.** omp keeps rollups because it parses log files into SQLite first. Our rows are already in Postgres, and the aggregates measured in milliseconds at 2,700 jobs and 25,000 steps. Pages query `runs`, `jobs`, `steps` and `samples` directly with `percentile_cont`, `date_trunc` and `generate_series`. We add a rollup table only when a page is measurably slow.
 - **UTC everywhere.** Buckets, hours and weekdays are UTC.
+- **Live updates over one SSE stream per page.** The shell opens `@get` on the page's URL with `live=1`. The handler keeps the response open and re-renders the page through the route's render function, so no page has live code. It patches `#page` when the data changes, at most once per 1.5 s, and sends an SSE comment every 15 s so idle connections stay open. A navigation patches `#live` with the new page's URL, which closes the old stream. A header chip listens to the `datastar-fetch` events of that stream and shows `Live`, `Reconnecting` or `Offline`.
+- **The data version is an in-process signal.** `store.Store.Changed` returns a channel that closes after the next committed write: a `store.InTx` transaction, or a statement run by the store's `Exec` or write methods (`InsertSamples`, `MarkArtifactIngested`, task updates). A stream takes the channel before it renders, so a write that lands mid-render triggers another patch. Readers block on the channel and never poll Postgres. Postgres `LISTEN/NOTIFY` would only matter with several server processes on one database, and the SPEC rules that out: one tsnet node, one state dir.
+- **Writes outside the process don't refresh the page.** Rows inserted with `psql`, or by another process on the same database, don't move the signal. The page catches up on the next write the server makes, on a reload, or when the stream reconnects, since a new stream renders at once. If a second process ever writes to the database, replace the signal with `LISTEN/NOTIFY`.
 - **Setup stays on `html/template`.** `/setup`, the manifest flow and backfill don't move.
 
 ## Rejected
@@ -37,5 +40,6 @@ omp's dashboard is a React client built with Bun, fed by a JSON API over a SQLit
 
 - A page is a query in `internal/store/stats_<page>.go`, a handler and template in `internal/ui/stats/<page>.go` and `<page>.templ`, one line in `routes.go` and one in `nav.go`. Every page renders its body through one function, so a live stream can re-render any page without knowing it.
 - `cmd/dashboard-dev` serves the dashboard on a loopback address with `GAUGER_DATABASE_URL` and nothing else, since the real binary only serves the UI on the tailnet.
+- A live stream never ends on its own, so the UI listener's `http.Server` uses the serve context as its `BaseContext`. Shutdown cancels its requests and the streams return, instead of `Shutdown` waiting out its timeout.
 - Upgrading Datastar means replacing the file, updating its sha256 here and in the test, and checking the release notes for attribute changes.
 - Chart text scales with the chart, so it gets small in a narrow card.
