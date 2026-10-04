@@ -31,6 +31,9 @@ type Fixtures struct {
 	// ArtifactOnlyJob is a job gauger never reached, whose samples came
 	// from the fallback artifact alone.
 	ArtifactOnlyJob int64
+	// PRWorkflows name the runs of the dynamic CodeQL workflow in acme/api
+	// that are named after their pull requests.
+	PRWorkflows []string
 }
 
 // Seed fills st with the dashboard fixtures, anchored at the current time.
@@ -50,6 +53,7 @@ func Fill(ctx context.Context, st *store.Store, now time.Time) (Fixtures, error)
 	s := newSeeder(now)
 	s.history()
 	s.jobPage()
+	s.trends()
 	return s.fx, s.insert(ctx, st)
 }
 

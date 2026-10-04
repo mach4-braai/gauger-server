@@ -1,0 +1,186 @@
+package stats
+
+import (
+	"strconv"
+
+	"github.com/mach4-braai/gauger-server/internal/github"
+	"github.com/mach4-braai/gauger-server/internal/ui/chart"
+)
+
+templ trendsIcon() {
+	@icon() {
+		<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"></polyline>
+		<polyline points="16 7 22 7 22 13"></polyline>
+	}
+}
+
+func trendNum(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+templ trendsPage(v trendsView) {
+	@pageHeader("Trends", v.Description)
+	@card("Median duration", "Per "+v.Bucket+" and "+v.Per+", UTC, at most 60 buckets. Weeks start Monday. A workflow run lasts from its first job's start to its last job's end and counts only when GitHub reports it succeeded. A job counts only when it succeeded.") {
+		<div class="row" style="flex-wrap: wrap; margin-bottom: 14px">
+			<div class="segmented" role="radiogroup" aria-label="Bucket">
+				for _, b := range trendBuckets {
+					<label class="segmented-option" title={ "One bucket per " + b.name }>
+						<input type="radio" name="bucket" form={ chart.Form } value={ b.name } checked?={ b.name == v.Bucket }/>
+						{ b.label }
+					</label>
+				}
+			</div>
+			<select class="input" name="workflow" form={ chart.Form } aria-label="Workflow">
+				<option value="">All workflows</option>
+				for _, w := range v.Workflows {
+					<option value={ w } selected?={ w == v.Workflow }>{ w }</option>
+				}
+			</select>
+			<select class="input" name="job" form={ chart.Form } aria-label="Job">
+				<option value="">All jobs</option>
+				for _, j := range v.Jobs {
+					<option value={ j } selected?={ j == v.Job }>{ j }</option>
+				}
+			</select>
+		</div>
+		@chart.Chart(v.Chart)
+		<div style="margin-top: 12px">
+			@chart.Legend(v.Legend)
+		</div>
+	}
+	@trendTable("Workflows", "No successful runs in this window.", v, v.WorkflowRow, false)
+	@trendTable("Jobs", "No successful jobs in this window.", v, v.JobRow, true)
+	if v.Step != nil {
+		<input type="hidden" form={ chart.Form } name="step" value={ v.StepKey }/>
+		@card(v.Step.Title, "Daily median against its "+strconv.Itoa(v.Baseline)+"-day baseline, UTC.") {
+			@chart.Chart(v.Step.Chart)
+			<div style="margin-top: 12px">
+				@chart.Legend(v.Step.Legend)
+			</div>
+		}
+	}
+	@card("Regressions", "Each day's median step duration per branch, compared with the median of the "+strconv.Itoa(v.Baseline)+" days before it on the same branch. Baselines need at least 3 runs. Select a day to chart its step.") {
+		<div class="row" style="flex-wrap: wrap; margin-bottom: 14px">
+			<label class="check">
+				At least
+				<input class="input" style="width: 5em" type="number" name="ratio" form={ chart.Form } step="0.05" min="1" value={ trendNum(v.Ratio) }/>
+				× baseline
+			</label>
+			<label class="check">
+				and
+				<input class="input" style="width: 5em" type="number" name="min" form={ chart.Form } min="0" value={ trendNum(v.Min) }/>
+				s
+			</label>
+		</div>
+		if len(v.Regressions) == 0 {
+			<p class="muted">No step is above its baseline by that much.</p>
+		} else {
+			<div class="table-wrap">
+				<table class="table" data-dense="true" id="regressions">
+					<thead>
+						<tr>
+							<th>Day (UTC)</th>
+							<th>Repository</th>
+							<th>Workflow</th>
+							<th>Job</th>
+							<th>Step</th>
+							<th>Branch</th>
+							<th data-align="right">Median</th>
+							<th data-align="right">Runs</th>
+							<th data-align="right">Baseline</th>
+							<th data-align="right">Change</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, g := range v.Regressions {
+							<tr data-selected={ strconv.FormatBool(g.Selected) }>
+								<td><a href={ templ.SafeURL(g.SelectHref) } data-nav>{ g.Day.UTC().Format("2006-01-02") }</a></td>
+								<td>{ g.Repository }</td>
+								<td>
+									if g.WorkflowHref != "" {
+										<a href={ templ.SafeURL(g.WorkflowHref) }>{ g.Workflow }</a>
+									} else {
+										{ g.Workflow }
+									}
+								</td>
+								<td><a href={ templ.SafeURL("/stats/jobs/" + strconv.FormatInt(g.JobID, 10)) }>{ g.Job }</a></td>
+								<td>
+									if g.StepHref != "" {
+										<a href={ templ.SafeURL(g.StepHref) }>{ g.Step }</a>
+									} else {
+										{ g.Step }
+									}
+								</td>
+								<td>
+									if g.BranchHref != "" {
+										<a href={ templ.SafeURL(g.BranchHref) }>{ g.Branch }</a>
+									}
+								</td>
+								<td class="num" data-align="right">{ chart.Seconds(g.Median) }</td>
+								<td class="num" data-align="right">{ chart.Integer(float64(g.Runs)) }</td>
+								<td class="num" data-align="right">{ chart.Seconds(g.Baseline) } <span class="muted">({ chart.Integer(float64(g.BaseRuns)) })</span></td>
+								<td class="num tone-bad" data-align="right">{ g.Change }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+}
+
+// trendTable lists each row's median per bucket, with its run count on hover.
+templ trendTable(title, empty string, v trendsView, rows []trendRow, jobs bool) {
+	@card(title, "") {
+		if len(rows) == 0 {
+			<p class="muted">{ empty }</p>
+		} else {
+			<div class="table-wrap">
+				<table class="table" data-dense="true" id={ "trend-" + title }>
+					<thead>
+						<tr>
+							<th>Repository</th>
+							<th>Workflow</th>
+							if jobs {
+								<th>Job</th>
+							}
+							for _, tick := range v.Ticks {
+								<th data-align="right">{ tick }</th>
+							}
+						</tr>
+					</thead>
+					<tbody>
+						for _, row := range rows {
+							<tr>
+								<td>{ row.Repository }</td>
+								<td>
+									if row.Path != "" {
+										<a href={ templ.SafeURL(github.WorkflowURL(v.GitHubURL, row.Repository, row.Path)) }>{ row.Workflow }</a>
+									} else {
+										{ row.Workflow }
+									}
+								</td>
+								if jobs {
+									<td>
+										if row.JobID != 0 {
+											<a href={ templ.SafeURL("/stats/jobs/" + strconv.FormatInt(row.JobID, 10)) }>{ row.Job }</a>
+										} else {
+											{ row.Job }
+										}
+									</td>
+								}
+								for _, c := range row.Cells {
+									<td class="num" data-align="right">
+										if c.Runs > 0 {
+											<span title={ plural(c.Runs, "run") }>{ chart.Seconds(c.Median) }</span>
+										}
+									</td>
+								}
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+}
