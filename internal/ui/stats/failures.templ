@@ -1,0 +1,155 @@
+package stats
+
+import "github.com/mach4-braai/gauger-server/internal/ui/chart"
+
+templ failuresIcon() {
+	@icon() {
+		<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"></path>
+		<path d="M12 9v4"></path>
+		<path d="M12 17h.01"></path>
+	}
+}
+
+templ failuresPage(v failuresView) {
+	@pageHeader("Failures", v.Description)
+	@statGrid(140) {
+		for _, t := range v.Tiles {
+			@stat(t)
+		}
+	}
+	@card("Failed and cancelled runs", v.bucketLabel()+", with the failure rate on the right axis") {
+		@chart.TimeChart(v.Chart)
+		<div style="margin-top: 12px">
+			@chart.Legend(v.Legend)
+		</div>
+	}
+	<div class="grid grid-2">
+		@card("Failing jobs", cmpOr(v.JobsNote, "Jobs by name and workflow. The rate is failures out of runs that completed other than cancelled or skipped.")) {
+			if len(v.Jobs) == 0 {
+				@emptyState("No failed jobs in this range", "")
+			} else {
+				@failuresJobsTable(v.Jobs)
+			}
+		}
+		@card("Failing steps", cmpOr(v.StepsNote, "Steps by name with the @ref of action steps removed. Cancelled steps are not counted.")) {
+			if len(v.Steps) == 0 {
+				@emptyState("No failed steps in this range", "")
+			} else {
+				@failuresStepsTable(v.Steps)
+			}
+		}
+	</div>
+	@card("Recent failures", "The latest failed jobs and the first step that failed in each.") {
+		if len(v.Recent) == 0 {
+			@emptyState("No failed jobs in this range", "")
+		} else {
+			@failuresRecentTable(v.Recent)
+		}
+	}
+}
+
+templ failuresJobsTable(rows []failuresJobRow) {
+	<div class="table-wrap">
+		<table class="table" data-dense="true">
+			<thead>
+				<tr>
+					<th>Job</th>
+					<th data-align="right">Failures</th>
+					<th data-align="right">Runs</th>
+					<th data-align="right">Rate</th>
+				</tr>
+			</thead>
+			<tbody>
+				for _, r := range rows {
+					<tr data-repo={ r.Repository } data-workflow={ r.Workflow } data-job={ r.Name }>
+						<td data-col="name">
+							<a href={ templ.SafeURL(r.Href) } data-nav title="The latest failed run">{ r.Name }</a>
+							<div class="muted truncate">{ r.Repository } · { r.Workflow }</div>
+						</td>
+						<td class="num" data-align="right" data-col="failures"><span class="tone-bad">{ r.Failures }</span></td>
+						<td class="num" data-align="right" data-col="runs">{ r.Runs }</td>
+						<td class="num" data-align="right" data-col="rate">{ r.Rate }</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+templ failuresStepsTable(rows []failuresStepRow) {
+	<div class="table-wrap">
+		<table class="table" data-dense="true">
+			<thead>
+				<tr>
+					<th>Step</th>
+					<th data-align="right">Failures</th>
+					<th data-align="right">Runs</th>
+					<th data-align="right">Rate</th>
+					<th data-align="right">Latest</th>
+				</tr>
+			</thead>
+			<tbody>
+				for _, r := range rows {
+					<tr data-failing-step={ r.Name }>
+						<td data-col="name">{ r.Name }</td>
+						<td class="num" data-align="right" data-col="failures"><span class="tone-bad">{ r.Failures }</span></td>
+						<td class="num" data-align="right" data-col="runs">{ r.Runs }</td>
+						<td class="num" data-align="right" data-col="rate">{ r.Rate }</td>
+						<td data-align="right" data-col="latest">
+							<a href={ templ.SafeURL(r.JobHref) } data-nav title="The job of the latest failure">job</a>
+							if r.GitHubHref != "" {
+								<a class="muted" href={ templ.SafeURL(r.GitHubHref) } title="This step on GitHub">step { r.StepNumber }</a>
+							} else {
+								<span class="muted">step { r.StepNumber }</span>
+							}
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+}
+
+templ failuresRecentTable(rows []failuresRecentRow) {
+	<div class="table-wrap">
+		<table class="table" data-dense="true">
+			<thead>
+				<tr>
+					<th>When</th>
+					<th>Job</th>
+					<th>Branch</th>
+					<th>First failed step</th>
+				</tr>
+			</thead>
+			<tbody>
+				for _, r := range rows {
+					<tr data-failed-job={ r.JobID }>
+						<td class="num" title={ r.WhenFull } data-col="when">{ r.When }</td>
+						<td data-col="job">
+							<a href={ templ.SafeURL(r.Href) } data-nav>{ r.Name }</a>
+							<div class="muted truncate">{ r.Repository } · { r.Workflow }</div>
+						</td>
+						<td data-col="branch">
+							if r.Branch == "" {
+								<span class="muted">–</span>
+							} else {
+								<a class="muted" href={ templ.SafeURL(r.BranchHref) }>{ r.Branch }</a>
+							}
+						</td>
+						<td data-col="cause">
+							if r.Cause == "" {
+								<span class="muted">No failed step recorded</span>
+							} else if r.LogHref != "" {
+								<a href={ templ.SafeURL(r.LogHref) } title="This step's log on GitHub">{ r.Cause }</a>
+								<span class="muted">step { r.StepNumber }</span>
+							} else {
+								{ r.Cause }
+								<span class="muted">step { r.StepNumber }</span>
+							}
+						</td>
+					</tr>
+				}
+			</tbody>
+		</table>
+	</div>
+}
