@@ -1,0 +1,37 @@
+package chart
+
+import "fmt"
+
+// ShareSegment is one part of a ShareBar.
+type ShareSegment struct {
+	Key   string
+	Label string
+	Value float64
+	Color string
+}
+
+func shareTotal(segments []ShareSegment) float64 {
+	total := 0.0
+	for _, s := range segments {
+		total += max(0, s.Value)
+	}
+	return total
+}
+
+// ShareBar splits one horizontal bar among segments by value. Segments of
+// zero are left out.
+templ ShareBar(segments []ShareSegment) {
+	<div class="share-bar" role="img">
+		if total := shareTotal(segments); total > 0 {
+			for _, s := range segments {
+				if s.Value > 0 {
+					<div
+						class="share-bar-seg"
+						style={ templ.SafeCSS(fmt.Sprintf("flex-grow: %.4f; background: %s", s.Value/total, s.Color)) }
+						title={ fmt.Sprintf("%s: %.1f%%", s.Label, s.Value/total*100) }
+					></div>
+				}
+			}
+		}
+	</div>
+}

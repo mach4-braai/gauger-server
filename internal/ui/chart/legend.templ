@@ -1,0 +1,59 @@
+package chart
+
+import "net/url"
+
+// LegendItem is one legend entry. Value is an optional figure shown after
+// the label. Toggles fills Off and Href, which make the item a link that
+// hides or shows its series.
+type LegendItem struct {
+	Key   string
+	Label string
+	Color string
+	Value string
+	Off   bool
+	Href  string
+	hide  string
+}
+
+// Toggles lists p's series as legend items that hide or show the series
+// when clicked, by reloading u with the series added to or removed from
+// HideParam.
+func Toggles(p Props, u *url.URL) []LegendItem {
+	items := make([]LegendItem, len(p.Series))
+	for i, s := range p.Series {
+		items[i] = LegendItem{
+			Key: s.Key, Label: s.Label, Color: s.Color,
+			Off: p.Hidden[s.Key], Href: toggleURL(u, p.ID, s.Key), hide: p.ID + ":" + s.Key,
+		}
+	}
+	return items
+}
+
+// Legend lists items. A hidden series from Toggles also renders as an
+// input of the filter form, so a filter change keeps it hidden.
+templ Legend(items []LegendItem) {
+	<div class="legend">
+		for _, item := range items {
+			if item.Href != "" {
+				<a class="legend-item" href={ item.Href } title={ item.Label } data-off?={ item.Off } data-nav>
+					@legendBody(item)
+				</a>
+				if item.Off && item.hide != "" {
+					<input type="hidden" form={ Form } name={ HideParam } value={ item.hide }/>
+				}
+			} else {
+				<span class="legend-item" title={ item.Label }>
+					@legendBody(item)
+				</span>
+			}
+		}
+	</div>
+}
+
+templ legendBody(item LegendItem) {
+	<span class="swatch" style={ templ.SafeCSS("background: " + item.Color) }></span>
+	<span class="truncate">{ item.Label }</span>
+	if item.Value != "" {
+		<span class="legend-value">{ item.Value }</span>
+	}
+}

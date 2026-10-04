@@ -26,6 +26,7 @@ Self-hosted server and web UI that joins GitHub Actions webhook timings with [ga
 
 ## Web UI
 
+- **Dashboard** at `/stats/`, filtered by range (24h, 7d, 30d, 90d or all), repository and event. The Overview has run, job and step counts, job minutes and estimated spend, run and job success rates, run duration and queue time p50 and p95, and gauger coverage, above a chart of runs per hour or day stacked by conclusion. Filter changes and legend toggles update the page in place and the URL with it; with JavaScript off the filters reload the page. Times are UTC. See [ADR 0002](docs/adr/0002-datastar-dashboard.md).
 - **Recent jobs**, filtered by repository and days like the other reports, link to a job view with run, job and step timings from GitHub, a CPU and memory chart from gauger, and runner usage per step.
 - **Slow steps.** p50 and p95 duration per step name.
 - **Regressions.** Each day's median step duration per branch against the median of the 14 days before it.
@@ -97,3 +98,14 @@ GAUGER_TEST_DATABASE_URL='postgres://test:test@127.0.0.1:55432/postgres?sslmode=
 ```
 
 Tests that need Postgres skip when `GAUGER_TEST_DATABASE_URL` is unset.
+
+The dashboard's pages are templ files. Run `go tool templ generate` after changing a `.templ` file and commit the generated `*_templ.go`; `mise run check` fails when they are out of date.
+
+To view the dashboard without a tailnet, point `mise run dashboard` at a database. `-seed` fills an empty one with the test fixtures, 90 days of runs across four repositories:
+
+```sh
+docker exec gauger-pg psql -U test -c 'CREATE DATABASE dashboard'
+GAUGER_DATABASE_URL='postgres://test:test@127.0.0.1:55432/dashboard?sslmode=disable' mise run dashboard -seed
+```
+
+It serves only `/stats/` and `/static/` on `http://127.0.0.1:8090`, and refuses an `-addr` that is not a loopback IP.

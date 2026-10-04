@@ -1,0 +1,32 @@
+package stats
+
+import "github.com/mach4-braai/gauger-server/internal/ui/chart"
+
+templ overviewIcon() {
+	@icon() {
+		<rect width="7" height="7" x="3" y="3" rx="1"></rect>
+		<rect width="7" height="7" x="14" y="3" rx="1"></rect>
+		<rect width="7" height="7" x="14" y="14" rx="1"></rect>
+		<rect width="7" height="7" x="3" y="14" rx="1"></rect>
+	}
+}
+
+templ overviewPage(v overviewView) {
+	@pageHeader("Overview", v.Description)
+	@statGrid(170) {
+		for _, t := range v.Main {
+			@stat(t)
+		}
+	}
+	@statGrid(140) {
+		for _, t := range v.Detail {
+			@stat(t)
+		}
+	}
+	@card("Runs", v.bucketLabel()+", by conclusion") {
+		@chart.TimeChart(v.Runs)
+		<div style="margin-top: 12px">
+			@chart.Legend(v.Legend)
+		</div>
+	}
+}

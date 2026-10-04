@@ -1,0 +1,209 @@
+package stats
+
+import (
+	"slices"
+
+	"github.com/mach4-braai/gauger-server/internal/ui/chart"
+	"github.com/mach4-braai/gauger-server/internal/ui/static"
+)
+
+type shell struct {
+	Title      string
+	Path       string
+	Sel        selection
+	Repos      []string
+	Events     []string
+	Version    string
+	VersionURL string
+	Body       templ.Component
+}
+
+// navigate follows a[data-nav] links in place; Datastar patches the page.
+const navigate = `const a = evt.target.closest('a[data-nav]'); if (a && evt.button === 0 && !(evt.metaKey || evt.ctrlKey || evt.shiftKey || evt.altKey)) { evt.preventDefault(); @get(a.getAttribute('href')) }`
+
+// refilter reloads the page in place when an input of the filter form
+// changes.
+const refilter = `if (evt.target.form && evt.target.form.id === '` + chart.Form + `') ` + applyFilters
+
+// themeScript applies the saved theme before first paint and defines
+// gaugerTheme, which the toggle calls to save and apply a new one.
+const themeScript = `(function () {
+	var key = "gauger-theme", dark = matchMedia("(prefers-color-scheme: dark)");
+	function saved() { try { return localStorage.getItem(key); } catch (e) { return null; } }
+	function apply(pref) {
+		var theme = pref === "light" || pref === "dark" ? pref : dark.matches ? "dark" : "light";
+		document.documentElement.dataset.theme = theme;
+		document.documentElement.style.colorScheme = theme;
+	}
+	window.gaugerTheme = function (pref) {
+		try { localStorage.setItem(key, pref); } catch (e) {}
+		apply(pref);
+	};
+	dark.addEventListener("change", function () { apply(saved()); });
+	apply(saved());
+})();`
+
+templ layout(sh shell) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<title>{ sh.Title } · gauger</title>
+			@templ.Raw("<script>" + themeScript + "</script>")
+			<link rel="stylesheet" href={ static.Path("stats.css") }/>
+			<script type="module" src={ static.Path("datastar.js") }></script>
+		</head>
+		<body data-on:click={ navigate } data-on:change={ refilter } data-indicator="_loading">
+			<div class="shell-ambient"></div>
+			<header class="topbar">
+				<label for="nav-open" class="btn topbar-menu" data-variant="ghost" data-icon="true" aria-label="Open navigation">
+					@menuIcon()
+				</label>
+				<a class="topbar-brand" href={ "/stats/" + sh.Sel.query() }>
+					@mark()
+					<span>gauger</span>
+					<span class="topbar-slash">/</span>
+					<span class="topbar-title">stats</span>
+				</a>
+				<div class="topbar-spacer"></div>
+				<div class="topbar-actions">
+					if sh.VersionURL != "" {
+						<a class="topbar-version micro mono" href={ sh.VersionURL } title={ "build " + sh.Version }>{ sh.Version }</a>
+					} else if sh.Version != "" {
+						<span class="topbar-version micro mono" title={ "build " + sh.Version }>{ sh.Version }</span>
+					}
+					@themeToggle()
+				</div>
+			</header>
+			<input type="checkbox" id="nav-open" class="nav-open" hidden/>
+			<label for="nav-open" class="drawer-scrim nav-scrim"></label>
+			@navList(sh.Path, sh.Sel)
+			<main class="shell-panel">
+				<div class="shell-content">
+					@filterBar(sh)
+					@pageBody(sh.Body)
+				</div>
+			</main>
+		</body>
+	</html>
+}
+
+// pageBody is the element a Datastar request replaces.
+templ pageBody(body templ.Component) {
+	<div id="page" class="page" data-class:stale="$_loading">
+		@body
+	</div>
+}
+
+// navGroups splits nav into runs of entries that share a group.
+func navGroups() [][]navItem {
+	var groups [][]navItem
+	for i, item := range nav {
+		if i == 0 || nav[i-1].group != item.group {
+			groups = append(groups, nil)
+		}
+		groups[len(groups)-1] = append(groups[len(groups)-1], item)
+	}
+	return groups
+}
+
+// navList is the sidebar. Its links carry the shell's filter, so a
+// Datastar request patches it along with the page.
+templ navList(path string, sel selection) {
+	<nav id="nav" class="sidebar" aria-label="Pages">
+		for _, group := range navGroups() {
+			<div class="nav-group">
+				<div class="nav-heading">{ group[0].group }</div>
+				for _, item := range group {
+					if item.path == path {
+						<a class="nav-row" href={ item.path + sel.query() } data-active="true" aria-current="page">
+							@item.icon()
+							<span class="nav-row-label">{ item.label }</span>
+						</a>
+					} else {
+						<a class="nav-row" href={ item.path + sel.query() }>
+							@item.icon()
+							<span class="nav-row-label">{ item.label }</span>
+						</a>
+					}
+				}
+			</div>
+		}
+		<div class="sidebar-foot micro">
+			<a href="/">Classic reports</a>
+			<a href="/setup">Setup</a>
+		</div>
+	</nav>
+}
+
+templ filterBar(sh shell) {
+	<form id={ chart.Form } class="filter-bar" method="get" action={ sh.Path } data-on:submit__prevent={ applyFilters }>
+		<select class="input" name="repo" aria-label="Repository">
+			<option value="">All repositories</option>
+			for _, r := range withSelected(sh.Repos, sh.Sel.Repo) {
+				<option value={ r } selected?={ r == sh.Sel.Repo }>{ r }</option>
+			}
+		</select>
+		<select class="input" name="event" aria-label="Event">
+			<option value="">All events</option>
+			for _, e := range withSelected(sh.Events, sh.Sel.Event) {
+				<option value={ e } selected?={ e == sh.Sel.Event }>{ e }</option>
+			}
+		</select>
+		<div class="segmented" role="radiogroup" aria-label="Time range">
+			for _, w := range windows {
+				<label class="segmented-option" title={ w.prose }>
+					<input type="radio" name="range" value={ w.key } checked?={ w.key == sh.Sel.Range }/>
+					{ w.label }
+				</label>
+			}
+		</div>
+		<noscript><button class="btn" data-size="sm" type="submit">Apply</button></noscript>
+	</form>
+}
+
+// withSelected is options plus selected when the query names something
+// the list does not have, so the form shows what the page is filtered by.
+func withSelected(options []string, selected string) []string {
+	if selected == "" || slices.Contains(options, selected) {
+		return options
+	}
+	return append(slices.Clone(options), selected)
+}
+
+templ themeToggle() {
+	<button
+		type="button"
+		class="btn"
+		data-variant="ghost"
+		data-icon="true"
+		aria-label="Switch between system, light and dark theme"
+		title="Theme: system, light or dark"
+		data-signals="{_theme: localStorage.getItem('gauger-theme') || 'system'}"
+		data-on:click="$_theme = {system: 'light', light: 'dark', dark: 'system'}[$_theme] || 'light'; gaugerTheme($_theme)"
+	>
+		<span data-show="$_theme !== 'light' && $_theme !== 'dark'">
+			@monitorIcon()
+		</span>
+		<span style="display: none" data-show="$_theme === 'light'">
+			@sunIcon()
+		</span>
+		<span style="display: none" data-show="$_theme === 'dark'">
+			@moonIcon()
+		</span>
+	</button>
+}
+
+templ mark() {
+	<svg class="topbar-mark" viewBox="0 0 64 64" width="22" height="22" aria-hidden="true">
+		<defs>
+			<linearGradient id="gauger-mark" x1="0" y1="0" x2="1" y2="1">
+				<stop offset="0" stop-color="var(--accent-a)"></stop>
+				<stop offset="1" stop-color="var(--accent-b)"></stop>
+			</linearGradient>
+		</defs>
+		<path fill="none" stroke="url(#gauger-mark)" stroke-width="7" stroke-linecap="round" d="M12 46a22 22 0 1 1 40 0"></path>
+		<path stroke="url(#gauger-mark)" stroke-width="7" stroke-linecap="round" d="M32 40 44 22"></path>
+	</svg>
+}

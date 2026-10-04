@@ -1,0 +1,125 @@
+package chart
+
+import (
+	"strconv"
+	"strings"
+)
+
+// Chart draws p. Hovering a slot shows its tooltip; a slot with a Select
+// link follows it in place when clicked.
+templ Chart(p Props) {
+	@draw(p.plan())
+}
+
+// TimeChart draws p over its time buckets.
+templ TimeChart(p TimeProps) {
+	@draw(p.chart().plan())
+}
+
+templ draw(c plot) {
+	<div
+		id={ c.ID }
+		class="chart"
+		data-signals={ "{_chart: {" + strings.TrimPrefix(c.Hover, "$_chart.") + ": -1}}" }
+		data-class:hovering={ c.Hover + " >= 0" }
+	>
+		<svg viewBox={ "0 0 " + num(c.W) + " " + num(c.H) } role="img" data-on:pointerleave={ c.Hover + " = -1" }>
+			if len(c.Patterns) > 0 {
+				<defs>
+					for _, pt := range c.Patterns {
+						<pattern id={ pt.ID } width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+							<rect width="5" height="5" fill={ pt.Color } fill-opacity="0.14"></rect>
+							<rect width="1.6" height="5" fill={ pt.Color }></rect>
+						</pattern>
+					}
+				</defs>
+			}
+			<g class="chart-grid">
+				for _, g := range c.Grid {
+					<line x1={ num(g.X1) } x2={ num(g.X2) } y1={ num(g.Y) } y2={ num(g.Y) }></line>
+				}
+			</g>
+			<g class="chart-axis">
+				for _, t := range c.LeftTicks {
+					<text x={ num(t.X) } y={ num(t.Y) } dy="0.32em" text-anchor="end">{ t.Label }</text>
+				}
+				for _, t := range c.RightTicks {
+					<text x={ num(t.X) } y={ num(t.Y) } dy="0.32em" text-anchor="start">{ t.Label }</text>
+				}
+				for _, t := range c.XTicks {
+					<text x={ num(t.X) } y={ num(t.Y) } text-anchor="middle">{ t.Label }</text>
+				}
+			</g>
+			for i, s := range c.Slots {
+				<rect class="chart-cursor" x={ num(s.X) } y={ num(c.PlotY) } width={ num(s.W) } height={ num(c.PlotH) } style="display: none" data-show={ c.Hover + " === " + strconv.Itoa(i) }></rect>
+			}
+			for _, a := range c.Areas {
+				<g>
+					<path d={ a.D } fill={ a.Fill } fill-opacity={ num(a.Opacity) }></path>
+					<path class="chart-line" d={ a.Line } stroke={ a.Color }></path>
+				</g>
+			}
+			for i, s := range c.Slots {
+				if len(s.Bars) > 0 {
+					<g class="chart-slot" data-class:hover={ c.Hover + " === " + strconv.Itoa(i) }>
+						for _, b := range s.Bars {
+							<rect class="chart-bar" x={ num(b.X) } y={ num(b.Y) } width={ num(b.W) } height={ num(b.H) } fill={ b.Fill }></rect>
+						}
+					</g>
+				}
+			}
+			for _, l := range c.Lines {
+				if l.Dashed {
+					<path class="chart-line" d={ l.D } stroke={ l.Color } stroke-dasharray="4 3"></path>
+				} else {
+					<path class="chart-line" d={ l.D } stroke={ l.Color }></path>
+				}
+			}
+			for _, d := range c.Dots {
+				<circle cx={ num(d.X) } cy={ num(d.Y) } r="2.5" fill={ d.Color }></circle>
+			}
+			for _, r := range c.Refs {
+				<g class="chart-axis">
+					<line x1={ num(r.Line.X1) } x2={ num(r.Line.X2) } y1={ num(r.Line.Y) } y2={ num(r.Line.Y) } stroke="var(--line-4)" stroke-dasharray="3 3"></line>
+					if r.Label != "" {
+						<text x={ num(r.LabelX) } y={ num(r.Line.Y - 5) } text-anchor="end">{ r.Label }</text>
+					}
+				</g>
+			}
+			<line class="chart-baseline" x1={ num(c.Baseline.X1) } x2={ num(c.Baseline.X2) } y1={ num(c.Baseline.Y) } y2={ num(c.Baseline.Y) }></line>
+			<g class="chart-hits">
+				for i, s := range c.Slots {
+					if s.Href != "" {
+						<a href={ s.Href } data-nav>
+							<rect x={ num(s.X) } y={ num(c.PlotY) } width={ num(s.W) } height={ num(c.PlotH) } data-on:pointerenter={ c.Hover + " = " + strconv.Itoa(i) }></rect>
+						</a>
+					} else {
+						<rect x={ num(s.X) } y={ num(c.PlotY) } width={ num(s.W) } height={ num(c.PlotH) } data-on:pointerenter={ c.Hover + " = " + strconv.Itoa(i) }></rect>
+					}
+				}
+			</g>
+		</svg>
+		if c.Empty {
+			<div class="chart-empty">{ c.EmptyLabel }</div>
+		} else {
+			for i, s := range c.Slots {
+				<div class="chart-tooltip" style={ templ.SafeCSS("display: none; " + s.Tip.Side + ": " + pct(s.Tip.Offset) + "; top: " + pct(s.Tip.Top)) } data-show={ c.Hover + " === " + strconv.Itoa(i) }>
+					<div class="chart-tooltip-title">{ s.Tip.Title }</div>
+					for _, r := range s.Tip.Rows {
+						<div class="chart-tooltip-row">
+							<span class="swatch" style={ templ.SafeCSS("background: " + r.Color) }></span>
+							<span class="chart-tooltip-label">{ r.Label }</span>
+							<span class="chart-tooltip-value">{ r.Value }</span>
+						</div>
+					}
+					if s.Tip.Total != "" {
+						<div class="chart-tooltip-row chart-tooltip-total">
+							<span class="chart-tooltip-label">Total</span>
+							<span class="chart-tooltip-value">{ s.Tip.Total }</span>
+						</div>
+					}
+				</div>
+			}
+		}
+	</div>
+}
