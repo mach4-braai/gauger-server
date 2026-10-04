@@ -1,0 +1,67 @@
+package stats
+
+import "github.com/mach4-braai/gauger-server/internal/ui/chart"
+
+templ healthIcon() {
+	@icon() {
+		<path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"></path>
+	}
+}
+
+templ healthPage(v healthView) {
+	@pageHeader("Health", v.Description)
+	@statGrid(170) {
+		for _, t := range v.Tiles {
+			@stat(t)
+		}
+	}
+	@card("Webhook deliveries", bucketsOf(v.Deliveries.Step)+", by event type. Deliveries are kept for "+v.Retention+".") {
+		if v.Capped {
+			<p class="card-description" id="deliveries-cap" style="margin-bottom: 12px">
+				The range is cut to the last { v.Retention }, because older deliveries are pruned.
+			</p>
+		}
+		@chart.TimeChart(v.Deliveries)
+		<div style="margin-top: 12px">
+			@chart.Legend(v.DeliveryLegend)
+		</div>
+	}
+	@card("Task queue", "The reconciler's work right now. A task leaves the queue when it finishes, so a backfill shrinks as it drains.") {
+		if len(v.Tasks) == 0 {
+			@emptyState("The queue is empty", "Nothing is waiting for the reconciler.")
+		} else {
+			<div class="table-wrap">
+				<table class="table" id="tasks" data-dense="true">
+					<thead>
+						<tr>
+							<th>Kind</th>
+							<th data-align="right">Queued</th>
+							<th data-align="right">Due</th>
+							<th>Oldest next run</th>
+							<th data-align="right">Max attempts</th>
+							<th>Last error</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, t := range v.Tasks {
+							<tr id={ "task-" + t.Kind }>
+								<td class="mono">{ t.Kind }</td>
+								<td data-align="right" class="task-queued">{ t.Queued }</td>
+								<td data-align="right" class="task-due">{ t.Due }</td>
+								<td title={ t.Title }>{ t.Oldest }</td>
+								<td data-align="right" class="task-attempts">{ t.Attempts }</td>
+								<td data-wrap="true" class="task-error">{ t.Error }</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+	@card("gauger coverage", bucketsOf(v.Coverage.Step)+", completed jobs by where their samples came from") {
+		@chart.TimeChart(v.Coverage)
+		<div style="margin-top: 12px">
+			@chart.Legend(v.CoverageLegend)
+		</div>
+	}
+}
