@@ -12,30 +12,13 @@ header a.brand { font-weight: 600; }
 header .version { margin-left: auto; font: 12px ui-monospace, monospace; color: #adbac7; }
 header .version a { color: inherit; margin-right: 0; }
 main { padding: 16px 24px; max-width: 1200px; }
-table { border-collapse: collapse; width: 100%; margin: 12px 0; }
-th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #d0d7de; vertical-align: top; }
-th { background: #f6f8fa; }
-td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-.muted { color: #656d76; }
-.bad { color: #cf222e; font-weight: 600; }
-.note { background: #fff8c5; border: 1px solid #d4a72c; padding: 6px 10px; margin: 8px 0; }
 .error { background: #ffebe9; border: 1px solid #cf222e; padding: 6px 10px; margin: 8px 0; }
-form.filters { margin: 8px 0; }
-form.filters label { margin-right: 12px; }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 4px 0 16px; }
-.legend-item { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: #656d76; }
-.swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
 </style>
 </head>
 <body>
 <header>
-<a class="brand" href="/">gauger</a>
+<a class="brand" href="/stats/">gauger</a>
 <a href="/stats/">Dashboard</a>
-<a href="/steps">Slow steps</a>
-<a href="/regressions">Regressions</a>
-<a href="/daily">Daily timing</a>
-<a href="/sizing">Right-sizing</a>
-<a href="/spend">Spend</a>
 <a href="/setup">Setup</a>
 {{with version}}<span class="version" title="build {{.}}">{{with versionURL}}<a href="{{.}}">{{version}}</a>{{else}}{{version}}{{end}}</span>{{end}}
 </header>

@@ -7,7 +7,6 @@ import (
 	"html/template"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"regexp"
 	"time"
 
@@ -46,16 +45,13 @@ func (u *UI) Handler() http.Handler {
 			ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html"))
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", u.home)
-	mux.HandleFunc("GET /jobs/{id}", u.job)
-	mux.HandleFunc("GET /steps", u.steps)
-	mux.HandleFunc("GET /regressions", trendsRedirect)
-	mux.HandleFunc("GET /daily", trendsRedirect)
-	mux.HandleFunc("GET /sizing", u.sizing)
-	mux.HandleFunc("GET /spend", func(w http.ResponseWriter, r *http.Request) {
-		to := url.URL{Path: "/stats/spend", RawQuery: r.URL.RawQuery}
-		http.Redirect(w, r, to.String(), http.StatusFound)
-	})
+	mux.Handle("GET /{$}", redirect("/stats/runs"))
+	mux.HandleFunc("GET /jobs/{id}", redirectJob)
+	mux.Handle("GET /steps", redirect("/stats/steps"))
+	mux.HandleFunc("GET /regressions", redirectTrends)
+	mux.HandleFunc("GET /daily", redirectTrends)
+	mux.Handle("GET /sizing", redirect("/stats/sizing"))
+	mux.Handle("GET /spend", redirect("/stats/spend"))
 	mux.HandleFunc("GET /setup", u.setup)
 	mux.HandleFunc("POST /setup/manifest", u.setupManifest)
 	mux.HandleFunc("GET /setup/callback", u.setupCallback)

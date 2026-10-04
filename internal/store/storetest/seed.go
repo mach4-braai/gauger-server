@@ -40,6 +40,11 @@ type Fixtures struct {
 	// under 40% of their runner, in a private and a public repository.
 	// LightMacJob is the same on macos-latest, which has no smaller label.
 	LightPrivateJob, LightPublicJob, LightMacJob int64
+	// FailedTwiceSHA has a job that failed on attempt 1 and again on attempt 2.
+	FailedTwiceSHA string
+	// ResourcesJob is the only sampled job on its runner labels and in its
+	// workflow.
+	ResourcesJob int64
 }
 
 // Seed fills st with the dashboard fixtures, anchored at the current time.
@@ -66,6 +71,9 @@ func Fill(ctx context.Context, st *store.Store, now time.Time) (Fixtures, error)
 	s.dynamicPullRequests()
 	s.capacity()
 	s.failureCases()
+	s.waste()
+	s.resources()
+	s.health()
 	return s.fx, s.insert(ctx, st)
 }
 
@@ -166,6 +174,7 @@ type seeder struct {
 	jobs    []*seedJob
 	steps   []seedStep
 	samples map[int64][]runner.Point
+	inserts []func(context.Context, pgx.Tx) error
 }
 
 func newSeeder(now time.Time) *seeder {
@@ -468,6 +477,11 @@ func (s *seeder) insert(ctx context.Context, st *store.Store) error {
 			"job_id", "number", "name", "status", "conclusion", "started_at", "completed_at",
 		}, pgx.CopyFromRows(rows)); err != nil {
 			return fmt.Errorf("steps: %w", err)
+		}
+		for _, insert := range s.inserts {
+			if err := insert(ctx, tx); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
