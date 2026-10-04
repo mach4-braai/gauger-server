@@ -1,0 +1,124 @@
+package stats
+
+import "github.com/mach4-braai/gauger-server/internal/ui/chart"
+
+templ wasteIcon() {
+	@icon() {
+		<path d="M3 6h18"></path>
+		<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
+		<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+		<line x1="10" x2="10" y1="11" y2="17"></line>
+		<line x1="14" x2="14" y1="11" y2="17"></line>
+	}
+}
+
+templ wastePage(v wasteView) {
+	@pageHeader("Waste", v.Description)
+	@statGrid(170) {
+		for _, t := range v.Tiles {
+			@stat(t)
+		}
+	}
+	<p id="waste-note" class="micro rise" style="margin: 0 0 12px">
+		The backfill only fetched the latest attempt of each run, so re-runs before 2026-09-30 are missing.
+	</p>
+	@card("Wasted minutes", v.bucketLabel()+", cancelled and failed jobs") {
+		@chart.TimeChart(v.Minutes)
+		<div style="margin-top: 12px">
+			@chart.Legend(v.Legend)
+		</div>
+	}
+	@wasteSection("Flaky candidates", "Failed, then passed on the same commit and job name. "+wasteShown(len(v.Flaky), v.FlakyTotal)) {
+		if len(v.Flaky) == 0 {
+			@emptyState("No flaky candidates in this range", "A job needs a failure followed by a pass on the same commit.")
+		} else {
+			<div class="table-wrap">
+				<table id="waste-flaky" class="table" data-dense="true">
+					<thead>
+						<tr>
+							<th>Job</th>
+							<th>Commit</th>
+							<th data-align="right">Failures</th>
+							<th>Failed</th>
+							<th>Passed</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, c := range v.Flaky {
+							<tr>
+								<td data-wrap="true">
+									<div>{ c.Job }</div>
+									<div class="micro">{ c.Repository } · { c.Workflow }</div>
+								</td>
+								<td>
+									<a class="mono" href={ templ.SafeURL(c.CommitURL) } target="_blank" rel="noopener noreferrer" title={ c.Branch }>{ c.Commit }</a>
+								</td>
+								<td class="num" data-align="right">{ c.Failures }</td>
+								<td>@wasteJobBadge(c.Failed)</td>
+								<td>@wasteJobBadge(c.Passed)</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+	@wasteSection("Re-runs", "Jobs that ran again in a later attempt of their run. "+wasteShown(len(v.ReRuns), v.ReRunTotal)) {
+		if len(v.ReRuns) == 0 {
+			@emptyState("No re-runs in this range", "")
+		} else {
+			<div class="table-wrap">
+				<table id="waste-reruns" class="table" data-dense="true">
+					<thead>
+						<tr>
+							<th>Job</th>
+							<th data-align="right">Re-runs</th>
+							<th data-align="right">Runs</th>
+							<th>Earlier attempt</th>
+							<th>Latest re-run</th>
+						</tr>
+					</thead>
+					<tbody>
+						for _, rr := range v.ReRuns {
+							<tr>
+								<td data-wrap="true">
+									<div>{ rr.Job }</div>
+									<div class="micro">{ rr.Repository } · { rr.Workflow }</div>
+								</td>
+								<td class="num" data-align="right">{ rr.Attempts }</td>
+								<td class="num" data-align="right">{ rr.Runs }</td>
+								<td>
+									if rr.Earlier != nil {
+										@wasteJobBadge(*rr.Earlier)
+									} else {
+										<span class="micro" title="The backfill stores only the latest attempt of a run.">not stored</span>
+									}
+								</td>
+								<td>@wasteJobBadge(rr.Latest)</td>
+							</tr>
+						}
+					</tbody>
+				</table>
+			</div>
+		}
+	}
+}
+
+// wasteSection is a card whose table runs edge to edge.
+templ wasteSection(title, description string) {
+	<section class="card rise">
+		<header class="card-header">
+			<div class="card-titles">
+				<h2 class="card-title">{ title }</h2>
+				<p class="card-description">{ description }</p>
+			</div>
+		</header>
+		<div class="card-body" data-flush="true">
+			{ children... }
+		</div>
+	</section>
+}
+
+templ wasteJobBadge(j wasteJob) {
+	<a class="badge" data-mono="true" data-tone={ j.Tone } href={ templ.SafeURL(j.Href) } title={ j.Title } data-nav>{ j.Label }</a>
+}

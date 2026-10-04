@@ -40,6 +40,8 @@ type Fixtures struct {
 	// under 40% of their runner, in a private and a public repository.
 	// LightMacJob is the same on macos-latest, which has no smaller label.
 	LightPrivateJob, LightPublicJob, LightMacJob int64
+	// FailedTwiceSHA has a job that failed on attempt 1 and again on attempt 2.
+	FailedTwiceSHA string
 }
 
 // Seed fills st with the dashboard fixtures, anchored at the current time.
@@ -66,6 +68,7 @@ func Fill(ctx context.Context, st *store.Store, now time.Time) (Fixtures, error)
 	s.dynamicPullRequests()
 	s.capacity()
 	s.failureCases()
+	s.waste()
 	return s.fx, s.insert(ctx, st)
 }
 
