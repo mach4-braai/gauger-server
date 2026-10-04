@@ -16,6 +16,7 @@ var nav = []navItem{
 	{"Usage", "/stats/", "Overview", overviewIcon},
 	{"Usage", "/stats/spend", "Spend", spendIcon},
 	{"Usage", "/stats/sizing", "Sizing", sizingIcon},
+	{"Usage", "/stats/breakdown", "Breakdown", breakdownIcon},
 	{"Activity", "/stats/runs", "Runs", runsIcon},
 	{"Performance", "/stats/trends", "Trends", trendsIcon},
 	{"Performance", "/stats/steps", "Steps", stepsIcon},
