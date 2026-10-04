@@ -73,6 +73,7 @@ func Fill(ctx context.Context, st *store.Store, now time.Time) (Fixtures, error)
 	s.failureCases()
 	s.waste()
 	s.resources()
+	s.health()
 	return s.fx, s.insert(ctx, st)
 }
 
@@ -173,6 +174,7 @@ type seeder struct {
 	jobs    []*seedJob
 	steps   []seedStep
 	samples map[int64][]runner.Point
+	inserts []func(context.Context, pgx.Tx) error
 }
 
 func newSeeder(now time.Time) *seeder {
@@ -475,6 +477,11 @@ func (s *seeder) insert(ctx context.Context, st *store.Store) error {
 			"job_id", "number", "name", "status", "conclusion", "started_at", "completed_at",
 		}, pgx.CopyFromRows(rows)); err != nil {
 			return fmt.Errorf("steps: %w", err)
+		}
+		for _, insert := range s.inserts {
+			if err := insert(ctx, tx); err != nil {
+				return err
+			}
 		}
 		return nil
 	})
