@@ -39,18 +39,12 @@ func floatParam(r *http.Request, key string, def float64) float64 {
 	return v
 }
 
-func (u *UI) jobs(w http.ResponseWriter, r *http.Request) {
-	f, form, err := u.filter(r, 7)
-	if err != nil {
-		u.fail(w, err)
-		return
+func (u *UI) home(w http.ResponseWriter, r *http.Request) {
+	to := "/stats/runs"
+	if r.URL.RawQuery != "" {
+		to += "?" + r.URL.RawQuery
 	}
-	jobs, err := u.Store.RecentJobs(r.Context(), f, 100)
-	if err != nil {
-		u.fail(w, err)
-		return
-	}
-	u.render(w, "jobs", map[string]any{"Filter": form, "Rows": jobs, "GitHubURL": u.GitHubURL})
+	http.Redirect(w, r, to, http.StatusFound)
 }
 
 // job redirects the old job page to the dashboard's, keeping the query.
