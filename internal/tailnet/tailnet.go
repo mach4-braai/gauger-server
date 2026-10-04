@@ -4,13 +4,16 @@ package tailnet
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"slices"
 
 	"tailscale.com/client/local"
+	"tailscale.com/ipn"
 	"tailscale.com/tsnet"
 )
 
@@ -84,4 +87,17 @@ func (n *Node) HasTag(ctx context.Context, remoteAddr, tag string) (bool, error)
 		return false, err
 	}
 	return slices.Contains(who.Node.Tags, tag), nil
+}
+
+// FunnelSource returns the address of the client behind a Funnel
+// connection. The TCP peer of such a connection is the Funnel relay.
+func FunnelSource(c net.Conn) (netip.Addr, bool) {
+	if tc, ok := c.(*tls.Conn); ok {
+		c = tc.NetConn()
+	}
+	fc, ok := c.(*ipn.FunnelConn)
+	if !ok {
+		return netip.Addr{}, false
+	}
+	return fc.Src.Addr(), true
 }

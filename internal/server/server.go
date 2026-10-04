@@ -16,6 +16,9 @@ type Server struct {
 	// Runner handles gauger's lifecycle and OTLP routes, already wrapped in
 	// runner authentication.
 	Runner http.Handler
+	// RunnerConnContext, if set, adds a runner connection's details to the
+	// context of its requests.
+	RunnerConnContext func(context.Context, net.Conn) context.Context
 	// Webhooks handles POST /webhooks/github.
 	Webhooks http.Handler
 	// UI handles every other path on the UI listener.
@@ -58,16 +61,18 @@ type Listeners struct {
 func (s *Server) Serve(ctx context.Context, l Listeners) error {
 	g, ctx := errgroup.WithContext(ctx)
 	for _, x := range []struct {
-		name string
-		ln   net.Listener
-		h    http.Handler
+		name    string
+		ln      net.Listener
+		h       http.Handler
+		connCtx func(context.Context, net.Conn) context.Context
 	}{
-		{"runner", l.Runner, s.RunnerHandler()},
-		{"ui", l.UI, s.UIHandler()},
-		{"webhook", l.Webhook, s.WebhookHandler()},
+		{"runner", l.Runner, s.RunnerHandler(), s.RunnerConnContext},
+		{"ui", l.UI, s.UIHandler(), nil},
+		{"webhook", l.Webhook, s.WebhookHandler(), nil},
 	} {
 		srv := &http.Server{
 			Handler:           x.h,
+			ConnContext:       x.connCtx,
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       time.Minute,
 			IdleTimeout:       2 * time.Minute,

@@ -40,6 +40,8 @@ These three must stay separate. A Funnel listener without `FunnelOnly` also acce
 
   Each request may only write to the job its token names. Every identity in the body must match the token's `repository`, `run_id`, `run_attempt` and `check_run_id` claims. A mismatch gets `403` and stores nothing.
 
+  Limit the rate per job, keyed on the `check_run_id` claim after authentication, and per client address before the token is verified, counting failed authentications. Answer `429` with `Retry-After`, which gauger retries without dropping the batch. On a Funnel listener the client address is the Funnel connection's source, not the relay.
+
   Runners send a fresh token every few minutes, so expect a new token partway through a job.
 - **Pending jobs.**
   - On `start`, or on the first batch, store the job as `pending`.
