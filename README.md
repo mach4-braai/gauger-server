@@ -53,8 +53,10 @@ This contract is shared with [gauger](https://github.com/mach4-braai/gauger). Ch
 The tailnet needs MagicDNS and HTTPS certificates turned on, and the node needs the `funnel` attribute.
 
 ```sh
-GAUGER_TS_AUTHKEY=tskey-auth-... docker compose up -d --build
+GAUGER_VERSION=$(git rev-parse --short=12 HEAD) GAUGER_TS_AUTHKEY=tskey-auth-... docker compose up -d --build
 ```
+
+The UI navbar shows `GAUGER_VERSION`, or `dev` if it is unset.
 
 The auth key is only read on first start. tsnet keeps the node key in the `state` volume, so keep that volume across upgrades. Losing it means enrolling again with a new key.
 

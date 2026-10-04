@@ -3,7 +3,7 @@ go = "1.26.8"
 
 [tasks.build]
 description = "Build gauger-server into bin/"
-run = "go build -trimpath -o bin/gauger-server ./cmd/gauger-server"
+run = 'go build -trimpath -ldflags "-X main.version=$(git rev-parse --short=12 HEAD)" -o bin/gauger-server ./cmd/gauger-server'
 
 [tasks.test]
 description = "Run the tests; set GAUGER_TEST_DATABASE_URL to include the Postgres ones"

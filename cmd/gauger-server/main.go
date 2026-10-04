@@ -18,6 +18,9 @@ import (
 	"github.com/mach4-braai/gauger-server/internal/webhook"
 )
 
+// version is set at link time with -ldflags "-X main.version=...".
+var version string
+
 func main() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 	if err := run(); err != nil {
@@ -27,6 +30,11 @@ func main() {
 }
 
 func run() error {
+	v := version
+	if v == "" {
+		v = "dev"
+	}
+	slog.Info("starting", "version", v)
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -67,7 +75,7 @@ func run() error {
 		Webhooks: &webhook.Handler{Store: st, Creds: creds, Wake: rec.Wake},
 		UI: (&ui.UI{
 			Store: st, GitHub: gh, Creds: creds, Rates: cfg.RunnerRates,
-			DNSName: node.DNSName, GitHubURL: cfg.GitHubURL, Wake: rec.Wake,
+			DNSName: node.DNSName, GitHubURL: cfg.GitHubURL, Wake: rec.Wake, Version: v,
 		}).Handler(),
 	}
 	return srv.Serve(ctx, server.Listeners{Runner: node.Runner, UI: node.UI, Webhook: node.Webhook})

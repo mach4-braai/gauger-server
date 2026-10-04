@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"html/template"
 	"log/slog"
+	"maps"
 	"math"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -31,6 +33,8 @@ type UI struct {
 	GitHubURL string
 	// Wake is called after a backfill request adds work for the reconciler.
 	Wake func()
+	// Version identifies the build, shown in the navbar. Empty hides it.
+	Version string
 
 	pages map[string]*template.Template
 }
@@ -38,7 +42,7 @@ type UI struct {
 func (u *UI) Handler() http.Handler {
 	u.pages = map[string]*template.Template{}
 	for _, name := range []string{"setup", "setup_redirect", "jobs", "job", "steps", "regressions", "daily", "sizing", "spend"} {
-		u.pages[name] = template.Must(template.New("layout.html").Funcs(funcs).
+		u.pages[name] = template.Must(template.New("layout.html").Funcs(u.funcs()).
 			ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html"))
 	}
 	mux := http.NewServeMux()
@@ -55,6 +59,21 @@ func (u *UI) Handler() http.Handler {
 	mux.HandleFunc("POST /setup/backfill", u.setupBackfill)
 	return mux
 }
+
+// funcs returns the shared template funcs plus the ones bound to this UI.
+func (u *UI) funcs() template.FuncMap {
+	f := maps.Clone(funcs)
+	f["version"] = func() string { return u.Version }
+	f["versionURL"] = func() string {
+		if !shaRE.MatchString(u.Version) {
+			return ""
+		}
+		return commitURL(u.GitHubURL, "mach4-braai/gauger-server", u.Version)
+	}
+	return f
+}
+
+var shaRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
 var funcs = template.FuncMap{
 	"secs": func(s float64) string { return fmtDuration(time.Duration(s * float64(time.Second))) },
