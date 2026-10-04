@@ -63,6 +63,7 @@ func Fill(ctx context.Context, st *store.Store, now time.Time) (Fixtures, error)
 	s.actionRefs()
 	s.spend()
 	s.sizing()
+	s.dynamicPullRequests()
 	return s.fx, s.insert(ctx, st)
 }
 

@@ -1310,6 +1310,13 @@ select.input {
 	vertical-align: -1px;
 }
 
+.row-links {
+	display: inline-flex;
+	gap: 10px;
+	font-size: 12px;
+	color: var(--accent);
+}
+
 .table td {
 	padding: 9px 12px;
 	border-bottom: 1px solid var(--line-1);
