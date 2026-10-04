@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -130,6 +131,12 @@ func TestSizingPageMatchesSQL(t *testing.T) {
 			perLabel := map[string][]int64{}
 			for _, j := range jobs {
 				label := rates.Label(j.labels)
+				switch {
+				case slices.Contains(j.labels, "self-hosted"):
+					label = "self-hosted"
+				case label == "" && len(j.labels) > 0:
+					label = j.labels[0]
+				}
 				c := perLabel[label]
 				if c == nil {
 					c = make([]int64, 4)
