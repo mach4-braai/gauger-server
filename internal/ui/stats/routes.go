@@ -12,4 +12,5 @@ var routes = []route{
 	{"/stats/sizing", "Sizing", (*Server).sizing},
 	{"/stats/breakdown", "Breakdown", (*Server).breakdown},
 	{"/stats/capacity", "Capacity", (*Server).capacity},
+	{"/stats/failures", "Failures", (*Server).failures},
 }
