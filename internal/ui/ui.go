@@ -8,7 +8,6 @@ import (
 	"html/template"
 	"log/slog"
 	"maps"
-	"math"
 	"net/http"
 	"regexp"
 	"strings"
@@ -44,7 +43,7 @@ type UI struct {
 
 func (u *UI) Handler() http.Handler {
 	u.pages = map[string]*template.Template{}
-	for _, name := range []string{"setup", "setup_redirect", "steps", "sizing", "spend"} {
+	for _, name := range []string{"setup", "setup_redirect", "sizing", "spend"} {
 		u.pages[name] = template.Must(template.New("layout.html").Funcs(u.funcs()).
 			ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html"))
 	}
@@ -88,7 +87,6 @@ func (u *UI) versionURL() string {
 var shaRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
 var funcs = template.FuncMap{
-	"secs": func(s float64) string { return fmtDuration(time.Duration(s * float64(time.Second))) },
 	"gib": func(v *float64) string {
 		return optional(v, func(x float64) string { return fmt.Sprintf("%.2f GiB", x/(1<<30)) })
 	},
@@ -128,18 +126,6 @@ func optional(v *float64, f func(float64) string) string {
 		return ""
 	}
 	return f(*v)
-}
-
-func fmtDuration(d time.Duration) string {
-	d = d.Round(time.Second)
-	switch {
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", int(d.Seconds()))
-	case d < time.Hour:
-		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(math.Mod(d.Seconds(), 60)))
-	default:
-		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(math.Mod(d.Minutes(), 60)))
-	}
 }
 
 func (u *UI) render(w http.ResponseWriter, page string, data any) {

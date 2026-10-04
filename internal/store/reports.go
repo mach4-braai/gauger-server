@@ -177,38 +177,6 @@ type Filter struct {
 	Until      time.Time
 }
 
-type SlowStep struct {
-	Name       string
-	Runs       int64
-	P50        float64
-	P95        float64
-	JobID      int64
-	StepNumber int
-	JobHTMLURL string
-}
-
-// SlowSteps returns p50 and p95 duration in seconds per step name over
-// successful steps, plus the job and step number of the slowest occurrence.
-func (s *Store) SlowSteps(ctx context.Context, f Filter) ([]SlowStep, error) {
-	rows, err := s.Pool.Query(ctx, `
-		SELECT s.name, count(*),
-			percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM s.completed_at - s.started_at)),
-			percentile_cont(0.95) WITHIN GROUP (ORDER BY extract(epoch FROM s.completed_at - s.started_at)),
-			(array_agg(s.job_id ORDER BY s.completed_at - s.started_at DESC, s.job_id DESC, s.number DESC))[1],
-			(array_agg(s.number ORDER BY s.completed_at - s.started_at DESC, s.job_id DESC, s.number DESC))[1],
-			coalesce((array_agg(j.html_url ORDER BY s.completed_at - s.started_at DESC, s.job_id DESC, s.number DESC))[1], '')
-		FROM steps s JOIN jobs j ON j.id = s.job_id
-		WHERE s.conclusion = 'success' AND s.started_at >= $1 AND s.completed_at IS NOT NULL
-		  AND ($2 = '' OR j.repository = $2)
-		GROUP BY s.name
-		ORDER BY 4 DESC
-		LIMIT 200`, f.Since, f.Repository)
-	if err != nil {
-		return nil, err
-	}
-	return pgx.CollectRows(rows, pgx.RowToStructByPos[SlowStep])
-}
-
 type Regression struct {
 	Repository string
 	Workflow   string

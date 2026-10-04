@@ -2,7 +2,6 @@ package store_test
 
 import (
 	"context"
-	"math"
 	"slices"
 	"testing"
 	"time"
@@ -42,31 +41,6 @@ func (s *seed) job(repo, branch string, labels []string, start time.Time, steps 
 		s.t.Fatal(err)
 	}
 	return s.id
-}
-
-func TestSlowStepsPercentiles(t *testing.T) {
-	st := storetest.Open(t, 90*24*time.Hour)
-	s := &seed{t: t, st: st}
-	base := time.Now().Add(-24 * time.Hour)
-	var slowest int64
-	for i, secs := range []int{10, 20, 30, 40, 100} {
-		id := s.job("acme/app", "main", nil, base.Add(time.Duration(i)*time.Hour), map[string]time.Duration{"make": time.Duration(secs) * time.Second})
-		if secs == 100 {
-			slowest = id
-		}
-	}
-	s.job("acme/other", "main", nil, base, map[string]time.Duration{"make": time.Hour})
-
-	rows, err := st.SlowSteps(context.Background(), store.Filter{Repository: "acme/app", Since: base.Add(-time.Hour)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 || rows[0].Runs != 5 || rows[0].P50 != 30 || math.Abs(rows[0].P95-88) > 1e-9 {
-		t.Fatalf("slow steps = %+v, want make with 5 runs, p50 30s, p95 88s", rows)
-	}
-	if rows[0].JobID != slowest || rows[0].StepNumber != 1 {
-		t.Fatalf("slow step job = %d step %d, want the slowest occurrence job %d step 1", rows[0].JobID, rows[0].StepNumber, slowest)
-	}
 }
 
 func TestRegressionsComparePerBranchWithTheDaysBefore(t *testing.T) {
@@ -449,34 +423,6 @@ func numberedJob(id int64, repo, branch, workflow, name string, start, end time.
 	return &github.Job{ID: id, RunID: id, RunAttempt: 1, WorkflowName: workflow, Name: name, HeadBranch: branch,
 		Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end,
 		Steps: []github.Step{{Number: number, Name: step, Status: "completed", Conclusion: "success", StartedAt: &start, CompletedAt: &end}}}
-}
-
-func TestSlowStepsTieBreakPicksOneOccurrence(t *testing.T) {
-	st := storetest.Open(t, 90*24*time.Hour)
-	ctx := context.Background()
-	start := time.Now().Add(-time.Hour)
-	end := start.Add(15 * time.Second)
-	jobs := []*github.Job{
-		numberedJob(9001, "acme/app", "main", "CI", "build", start, end, 3, "deploy"),
-		numberedJob(9002, "acme/app", "main", "CI", "build", start, end, 7, "deploy"),
-	}
-	for _, j := range jobs {
-		if err := st.InTx(ctx, func(tx pgx.Tx) error { return store.UpsertJob(ctx, tx, "acme/app", j) }); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	rows, err := st.SlowSteps(ctx, store.Filter{Since: start.Add(-time.Hour)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(rows) != 1 {
-		t.Fatalf("slow steps = %+v, want one row for deploy", rows)
-	}
-	r := rows[0]
-	if (r.JobID != 9001 || r.StepNumber != 3) && (r.JobID != 9002 || r.StepNumber != 7) {
-		t.Fatalf("slow step job %d step %d, want a job and step from the same occurrence", r.JobID, r.StepNumber)
-	}
 }
 
 func TestRegressionsTieBreakPicksOneOccurrence(t *testing.T) {
