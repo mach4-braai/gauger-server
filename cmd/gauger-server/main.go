@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"syscall"
@@ -69,9 +70,17 @@ func run() error {
 		Tag:      cfg.RunnerTag,
 		Verifier: ingest.NewVerifier(ctx, cfg.OIDCAudience),
 		OwnerID:  cfg.OIDCOwnerID,
+		Failures: ingest.FailedAuthLimiter(),
+		Jobs:     ingest.JobLimiter(),
 	}
 	srv := &server.Server{
-		Runner:   auth.Wrap((&ingest.Handler{Store: st, Reconciler: rec}).Routes()),
+		Runner: auth.Wrap((&ingest.Handler{Store: st, Reconciler: rec}).Routes()),
+		RunnerConnContext: func(ctx context.Context, c net.Conn) context.Context {
+			if src, ok := tailnet.FunnelSource(c); ok {
+				return ingest.WithClientAddr(ctx, src)
+			}
+			return ctx
+		},
 		Webhooks: &webhook.Handler{Store: st, Creds: creds, Wake: rec.Wake},
 		UI: (&ui.UI{
 			Store: st, GitHub: gh, Creds: creds, Rates: cfg.RunnerRates,

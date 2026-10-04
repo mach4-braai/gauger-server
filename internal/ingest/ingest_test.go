@@ -33,9 +33,10 @@ import (
 )
 
 const (
-	ownerID  = "287937105"
-	ciPeer   = "100.64.0.10:40000"
-	userPeer = "100.64.0.20:40000"
+	ownerID     = "287937105"
+	ciPeer      = "100.64.0.10:40000"
+	otherCIPeer = "100.64.0.11:40000"
+	userPeer    = "100.64.0.20:40000"
 )
 
 type tags map[string][]string
@@ -112,14 +113,23 @@ func (e *env) start(t *testing.T) {
 	t.Cleanup(st.Close)
 	e.st = st
 	e.rec = reconcile.New(st, github.NewClient(e.gh.URL, github.StaticCredentials{C: e.gh.Credentials()}))
-	auth := &ingest.Auth{Tags: tags{ciPeer: {"tag:gauger-ci"}}, Tag: "tag:gauger-ci", Verifier: e.iss.verifier(), OwnerID: ownerID}
+	auth := &ingest.Auth{
+		Tags: tags{ciPeer: {"tag:gauger-ci"}, otherCIPeer: {"tag:gauger-ci"}}, Tag: "tag:gauger-ci",
+		Verifier: e.iss.verifier(), OwnerID: ownerID,
+		Failures: ingest.FailedAuthLimiter(), Jobs: ingest.JobLimiter(),
+	}
 	e.h = auth.Wrap((&ingest.Handler{Store: st, Reconciler: e.rec}).Routes())
 }
 
 func (e *env) do(t *testing.T, path, contentType string, body []byte, token string) *httptest.ResponseRecorder {
 	t.Helper()
+	return e.doFrom(t, ciPeer, path, contentType, body, token)
+}
+
+func (e *env) doFrom(t *testing.T, remote, path, contentType string, body []byte, token string) *httptest.ResponseRecorder {
+	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
-	req.RemoteAddr = ciPeer
+	req.RemoteAddr = remote
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
@@ -455,5 +465,68 @@ func TestTokenBindsRequestsToItsJob(t *testing.T) {
 	}
 	if n := e.count(t, `SELECT count(*) FROM jobs WHERE id = 556`); n != 0 {
 		t.Fatal("job 556 should have no rows")
+	}
+}
+
+func TestJobOverItsRateGets429(t *testing.T) {
+	e := newEnv(t)
+	tokenA := e.iss.jobToken(t, 555)
+	start := time.Now().Add(-5 * time.Minute).Truncate(time.Second)
+
+	if rec := e.lifecycle(t, "/v1/jobs/start", identity(555)); rec.Code != http.StatusOK {
+		t.Fatalf("start: %d", rec.Code)
+	}
+	for i := range 60 {
+		if rec := e.do(t, "/v1/metrics", "application/x-protobuf", batch(555, start.Add(time.Duration(i)*5*time.Second), 0.5), tokenA); rec.Code != http.StatusOK {
+			t.Fatalf("replayed batch %d of 60: %d %s", i+1, rec.Code, rec.Body)
+		}
+	}
+
+	var limited *httptest.ResponseRecorder
+	for range 200 {
+		rec := e.do(t, "/v1/metrics", "application/x-protobuf", batch(555, start, 0.5), tokenA)
+		if rec.Code == http.StatusTooManyRequests {
+			limited = rec
+			break
+		}
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status %d before the limit", rec.Code)
+		}
+	}
+	if limited == nil || limited.Header().Get("Retry-After") == "" {
+		t.Fatal("a job sending without pause should get 429 with Retry-After")
+	}
+	if rec := e.do(t, "/v1/metrics", "application/x-protobuf", batch(556, start, 0.5), e.iss.jobToken(t, 556)); rec.Code != http.StatusOK {
+		t.Fatalf("another job while 555 is limited: %d", rec.Code)
+	}
+}
+
+func TestRepeatedBadTokensFromOneAddressGet429(t *testing.T) {
+	e := newEnv(t)
+	body, _ := json.Marshal(identity(555))
+	bad := e.iss.token(t, func(c jwt.MapClaims) { c["aud"] = "sts.amazonaws.com" })
+
+	var limited *httptest.ResponseRecorder
+	for range 50 {
+		rec := e.doFrom(t, ciPeer, "/v1/jobs/start", "application/json", body, bad)
+		if rec.Code == http.StatusTooManyRequests {
+			limited = rec
+			break
+		}
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("bad token: status %d, want 401 until the limit", rec.Code)
+		}
+	}
+	if limited == nil || limited.Header().Get("Retry-After") == "" {
+		t.Fatal("repeated bad tokens should get 429 with Retry-After")
+	}
+	if rec := e.doFrom(t, ciPeer, "/v1/jobs/start", "application/json", body, e.iss.token(t, nil)); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("valid token from the limited address: %d, want 429 before verification", rec.Code)
+	}
+	if rec := e.doFrom(t, otherCIPeer, "/v1/jobs/start", "application/json", body, bad); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("bad token from another address: %d, want 401", rec.Code)
+	}
+	if n := e.count(t, `SELECT count(*) FROM jobs`); n != 0 {
+		t.Fatalf("jobs = %d, want none", n)
 	}
 }
