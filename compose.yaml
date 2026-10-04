@@ -14,7 +14,10 @@ services:
       retries: 10
 
   gauger-server:
-    build: .
+    build:
+      context: .
+      args:
+        VERSION: ${GAUGER_VERSION:-}
     restart: unless-stopped
     depends_on:
       postgres:

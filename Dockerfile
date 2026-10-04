@@ -3,7 +3,8 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/gauger-server ./cmd/gauger-server \
+ARG VERSION=
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/gauger-server ./cmd/gauger-server \
  && mkdir -p /out/state
 
 FROM gcr.io/distroless/static-debian12:nonroot
