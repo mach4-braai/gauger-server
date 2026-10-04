@@ -78,22 +78,6 @@ func (s *Store) MarkRunnerSeen(ctx context.Context, jobID int64, id runner.Ident
 	})
 }
 
-// MatchJobByRunner finds the job runnerName was running at time at.
-func (s *Store) MatchJobByRunner(ctx context.Context, runID int64, attempt int, runnerName string, at time.Time) (int64, bool, error) {
-	var id int64
-	err := s.Pool.QueryRow(ctx, `
-		SELECT id FROM jobs
-		WHERE run_id = $1 AND run_attempt = $2 AND runner_name = $3
-		  AND (started_at IS NULL OR started_at <= $4::timestamptz + interval '2 minutes')
-		  AND (completed_at IS NULL OR completed_at >= $4::timestamptz - interval '10 minutes')
-		ORDER BY started_at DESC NULLS LAST
-		LIMIT 1`, runID, attempt, runnerName, at).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, false, nil
-	}
-	return id, err == nil, err
-}
-
 // InsertSamples stores points for a job and ignores ones already stored, so
 // replays from gauger's buffer or the artifact add nothing twice. It returns
 // how many points fell outside the retention window and were dropped.

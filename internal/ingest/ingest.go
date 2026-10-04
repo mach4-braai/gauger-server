@@ -1,39 +1,24 @@
 package ingest
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"net/http"
-	"strconv"
-	"sync"
-	"time"
 
 	colmetrics "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/mach4-braai/gauger-server/internal/github"
 	"github.com/mach4-braai/gauger-server/internal/reconcile"
 	"github.com/mach4-braai/gauger-server/internal/runner"
 	"github.com/mach4-braai/gauger-server/internal/store"
 )
 
-// resyncInterval stops a burst of unmatched batches from repeating the same
-// REST lookup.
-const resyncInterval = 30 * time.Second
-
-var errUnmatched = errors.New("no job matches this runner yet")
-
 type Handler struct {
 	Store      *store.Store
 	Reconciler *reconcile.Reconciler
-
-	mu       sync.Mutex
-	syncedAt map[string]time.Time
 }
 
 func (h *Handler) Routes() http.Handler {
@@ -66,17 +51,11 @@ func (h *Handler) lifecycle(done bool) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		at := time.Now()
-		if s, ok := body["time"].(string); ok {
-			if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-				at = t
-			}
-		}
-		jobID, err := h.resolve(r.Context(), id, at)
-		if err != nil {
-			h.resolveError(w, id, err)
+		if id, err = bind(r, id); err != nil {
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
+		jobID := id.CheckRunID
 		if err := h.Store.MarkRunnerSeen(r.Context(), jobID, id, done); err != nil {
 			slog.Error("mark runner seen", "job_id", jobID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -103,14 +82,16 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 	points, rejected := runner.Points(req)
 	byJob := map[runner.Identity][]runner.Point{}
 	for _, p := range points {
-		byJob[p.Identity] = append(byJob[p.Identity], p)
-	}
-	for id, pts := range byJob {
-		jobID, err := h.resolve(r.Context(), id, pts[0].Time)
+		id, err := bind(r, p.Identity)
 		if err != nil {
-			h.resolveError(w, id, err)
+			http.Error(w, err.Error(), http.StatusForbidden)
 			return
 		}
+		p.Identity = id
+		byJob[id] = append(byJob[id], p)
+	}
+	for id, pts := range byJob {
+		jobID := id.CheckRunID
 		if err := h.Store.MarkRunnerSeen(r.Context(), jobID, id, false); err != nil {
 			slog.Error("mark runner seen", "job_id", jobID, "err", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -148,62 +129,11 @@ func (h *Handler) metrics(w http.ResponseWriter, r *http.Request) {
 	w.Write(out)
 }
 
-// resolve returns the job ID for an identity. Without a check_run_id it
-// matches runner.name to the job that runner was running at time at,
-// refreshing the run's jobs from REST once if none matches.
-func (h *Handler) resolve(ctx context.Context, id runner.Identity, at time.Time) (int64, error) {
-	if id.CheckRunID != 0 {
-		return id.CheckRunID, nil
+// bind checks id against the claims Auth.Wrap verified for r.
+func bind(r *http.Request, id runner.Identity) (runner.Identity, error) {
+	c, ok := ClaimsFrom(r.Context())
+	if !ok {
+		return id, errors.New("request carries no verified token claims")
 	}
-	jobID, ok, err := h.Store.MatchJobByRunner(ctx, id.RunID, id.RunAttempt, id.RunnerName, at)
-	if err != nil || ok {
-		return jobID, err
-	}
-	if !h.claimSync(store.RunKey(id.RunID, id.RunAttempt)) {
-		return 0, errUnmatched
-	}
-	if _, err := h.Reconciler.SyncRunAttempt(ctx, id.Repository, id.RunID, id.RunAttempt); err != nil {
-		return 0, err
-	}
-	jobID, ok, err = h.Store.MatchJobByRunner(ctx, id.RunID, id.RunAttempt, id.RunnerName, at)
-	if err == nil && !ok {
-		err = errUnmatched
-	}
-	return jobID, err
-}
-
-func (h *Handler) claimSync(key string) bool {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.syncedAt == nil {
-		h.syncedAt = map[string]time.Time{}
-	}
-	now := time.Now()
-	for k, t := range h.syncedAt {
-		if now.Sub(t) > resyncInterval {
-			delete(h.syncedAt, k)
-		}
-	}
-	if _, recent := h.syncedAt[key]; recent {
-		return false
-	}
-	h.syncedAt[key] = now
-	return true
-}
-
-func (h *Handler) resolveError(w http.ResponseWriter, id runner.Identity, err error) {
-	var rl *github.RateLimitError
-	retry := 30 * time.Second
-	switch {
-	case errors.As(err, &rl):
-		retry = max(time.Until(rl.Until), time.Second)
-	case errors.Is(err, errUnmatched), errors.Is(err, github.ErrNotConfigured):
-	case github.IsNotFound(err):
-		http.Error(w, "the GitHub App does not cover "+id.Repository, http.StatusUnprocessableEntity)
-		return
-	default:
-		slog.Error("resolve runner job", "run_id", id.RunID, "runner", id.RunnerName, "err", err)
-	}
-	w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
-	http.Error(w, "job not known yet: "+err.Error(), http.StatusServiceUnavailable)
+	return c.bind(id)
 }

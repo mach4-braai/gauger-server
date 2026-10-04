@@ -68,10 +68,10 @@ func TestPoints(t *testing.T) {
 
 func TestPointsRejectRecordsWithoutIdentity(t *testing.T) {
 	req := request()
-	req.ResourceMetrics[0].Resource.Attributes = []*common.KeyValue{num(runner.AttrRunID, 100), num(runner.AttrRunAttempt, 1), str(runner.AttrRepository, "acme/app")}
+	req.ResourceMetrics[0].Resource.Attributes = []*common.KeyValue{num(runner.AttrRunAttempt, 1), num(runner.AttrCheckRunID, 555), str(runner.AttrRepository, "acme/app")}
 	points, rejected := runner.Points(req)
-	if len(points) != 1 || rejected != 3 {
-		t.Fatalf("points=%d rejected=%d, want only the point with its own check_run_id", len(points), rejected)
+	if len(points) != 0 || rejected != 4 {
+		t.Fatalf("points=%d rejected=%d, want every point rejected without %s", len(points), rejected, runner.AttrRunID)
 	}
 }
 

@@ -38,6 +38,8 @@ These three must stay separate. A Funnel listener without `FunnelOnly` also acce
   - `WhoIs` says the caller is `tag:gauger-ci`.
   - The bearer token is a valid GitHub OIDC JWT: `iss` is `https://token.actions.githubusercontent.com`, `aud` is `gauger-server`, `exp` hasn't passed, and `repository_owner_id` is `287937105`.
 
+  Each request may only write to the job its token names. Every identity in the body must match the token's `repository`, `run_id`, `run_attempt` and `check_run_id` claims. A mismatch gets `403` and stores nothing.
+
   Runners send a fresh token every few minutes, so expect a new token partway through a job.
 - **Pending jobs.**
   - On `start`, or on the first batch, store the job as `pending`.
@@ -46,7 +48,7 @@ These three must stay separate. A Funnel listener without `FunnelOnly` also acce
   - If the samples never arrive, look for the fallback artifact `gauger-<check_run_id>` until it shows up or its 7 days expire.
 - **Job matching.**
   - Join on `run_id`, `run_attempt` and `check_run_id`.
-  - If `check_run_id` is missing, match `runner.name` to the job that was in progress.
+  - If the body has no `check_run_id`, use the token's `check_run_id` claim.
 - **Rate limits.** Allow at least 5,000 requests an hour per installation. Back off on `x-ratelimit-*` and `retry-after`.
 - **Webhook handler.** Choose between embedding the OTel `githubreceiver` (alpha) and writing your own handler. Record why in `docs/adr/`.
 

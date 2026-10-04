@@ -29,7 +29,7 @@ func isIdentityKey(k string) bool {
 }
 
 // Identity names the job a record belongs to. CheckRunID is 0 when gauger
-// could not read it; RunnerName then identifies the job.
+// could not read it; the server then takes it from the runner's token.
 type Identity struct {
 	RunID      int64
 	RunAttempt int
@@ -63,8 +63,5 @@ func ParseIdentity(get func(string) string) (Identity, error) {
 	id.Workflow = get(AttrWorkflow)
 	id.Job = get(AttrJob)
 	id.RunnerName = get(AttrRunnerName)
-	if id.CheckRunID == 0 && id.RunnerName == "" {
-		return Identity{}, fmt.Errorf("need %s or %s", AttrCheckRunID, AttrRunnerName)
-	}
 	return id, nil
 }

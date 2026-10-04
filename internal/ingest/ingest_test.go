@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -69,6 +70,7 @@ func (i *oidcIssuer) token(t *testing.T, edit func(jwt.MapClaims)) string {
 		"iss": ingest.GitHubIssuer, "aud": "gauger-server", "sub": "repo:acme/app:ref:refs/heads/main",
 		"iat": now.Unix(), "exp": now.Add(5 * time.Minute).Unix(),
 		"repository_owner_id": ownerID, "repository": "acme/app",
+		"run_id": "100", "run_attempt": "1", "check_run_id": "555",
 	}
 	if edit != nil {
 		edit(claims)
@@ -78,6 +80,11 @@ func (i *oidcIssuer) token(t *testing.T, edit func(jwt.MapClaims)) string {
 		t.Fatal(err)
 	}
 	return s
+}
+
+// jobToken is a token issued to job checkRunID of run 100, attempt 1.
+func (i *oidcIssuer) jobToken(t *testing.T, checkRunID int64) string {
+	return i.token(t, func(c jwt.MapClaims) { c["check_run_id"] = strconv.FormatInt(checkRunID, 10) })
 }
 
 type env struct {
@@ -120,9 +127,11 @@ func (e *env) do(t *testing.T, path, contentType string, body []byte, token stri
 	return rec
 }
 
+// lifecycle posts id with a token issued to the job id names.
 func (e *env) lifecycle(t *testing.T, path string, id map[string]any) *httptest.ResponseRecorder {
 	b, _ := json.Marshal(id)
-	return e.do(t, path, "application/json", b, e.iss.token(t, nil))
+	checkRunID, _ := id[runner.AttrCheckRunID].(int64)
+	return e.do(t, path, "application/json", b, e.iss.jobToken(t, checkRunID))
 }
 
 func (e *env) count(t *testing.T, sql string, args ...any) int {
@@ -220,6 +229,7 @@ func TestAuthNeedsTagAndValidToken(t *testing.T) {
 		{"wrong issuer", ciPeer, e.iss.token(t, func(c jwt.MapClaims) { c["iss"] = "https://evil.example" }), http.StatusUnauthorized},
 		{"expired", ciPeer, e.iss.token(t, func(c jwt.MapClaims) { c["exp"] = time.Now().Add(-time.Second).Unix() }), http.StatusUnauthorized},
 		{"other owner", ciPeer, e.iss.token(t, func(c jwt.MapClaims) { c["repository_owner_id"] = "1" }), http.StatusUnauthorized},
+		{"no check_run_id claim", ciPeer, e.iss.token(t, func(c jwt.MapClaims) { delete(c, "check_run_id") }), http.StatusUnauthorized},
 		{"valid", ciPeer, valid, http.StatusOK},
 		{"fresh token mid-job", ciPeer, e.iss.token(t, func(c jwt.MapClaims) { c["iat"] = time.Now().Unix() + 1 }), http.StatusOK},
 	} {
@@ -390,30 +400,60 @@ func TestCompletedRunKeepsSearchingForArtifactsOfJobsGaugerNeverReached(t *testi
 	}
 }
 
-func TestRunnerNameMatchesTheJobInProgress(t *testing.T) {
+func TestTokenBindsRequestsToItsJob(t *testing.T) {
 	e := newEnv(t)
-	now := time.Now()
-	earlier, earlierEnd := now.Add(-time.Hour), now.Add(-50*time.Minute)
-	e.gh.Mu.Lock()
-	e.gh.Runs["100:1"] = &github.Run{ID: 100, RunAttempt: 1, Status: "in_progress", Repository: github.Repository{FullName: "acme/app"}}
-	e.gh.Jobs[801] = completedJob(801, earlier, earlierEnd)
-	e.gh.Jobs[802] = &github.Job{ID: 802, RunID: 100, RunAttempt: 1, Status: "in_progress", RunnerName: "GitHub Actions 3", StartedAt: new(now.Add(-time.Minute))}
-	e.gh.Mu.Unlock()
-
-	rec := e.lifecycle(t, "/v1/jobs/start", identity(0))
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"job_id":802`) {
-		t.Fatalf("start without check_run_id: %d %s, want job 802", rec.Code, rec.Body)
+	tokenA := e.iss.jobToken(t, 555)
+	now := time.Now().Truncate(time.Second)
+	with := func(k string, v any) map[string]any {
+		id := identity(555)
+		id[k] = v
+		return id
 	}
 
-	other := identity(0)
-	other[runner.AttrRunnerName] = "GitHub Actions 99"
-	rec = e.lifecycle(t, "/v1/jobs/start", other)
-	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
-		t.Fatalf("unknown runner: %d, want 503 with Retry-After", rec.Code)
+	for _, path := range []string{"/v1/jobs/start", "/v1/jobs/done"} {
+		for name, id := range map[string]map[string]any{
+			"another job":        identity(556),
+			"another run":        with(runner.AttrRunID, 101),
+			"another attempt":    with(runner.AttrRunAttempt, 2),
+			"another repository": with(runner.AttrRepository, "acme/other"),
+		} {
+			b, _ := json.Marshal(id)
+			if got := e.do(t, path, "application/json", b, tokenA).Code; got != http.StatusForbidden {
+				t.Errorf("%s for %s: status %d, want 403", path, name, got)
+			}
+		}
 	}
-	var n int
-	e.st.Pool.QueryRow(context.Background(), `SELECT count(*) FROM jobs WHERE runner_seen_at IS NOT NULL`).Scan(&n)
-	if n != 1 {
-		t.Fatalf("jobs seen = %d, want only 802", n)
+	if rec := e.do(t, "/v1/metrics", "application/x-protobuf", batch(556, now, 0.1), tokenA); rec.Code != http.StatusForbidden {
+		t.Errorf("batch for another job: status %d, want 403", rec.Code)
+	}
+
+	var mixed colmetrics.ExportMetricsServiceRequest
+	for _, b := range [][]byte{batch(555, now, 0.2), batch(556, now, 0.3)} {
+		var part colmetrics.ExportMetricsServiceRequest
+		if err := proto.Unmarshal(b, &part); err != nil {
+			t.Fatal(err)
+		}
+		mixed.ResourceMetrics = append(mixed.ResourceMetrics, part.ResourceMetrics...)
+	}
+	body, _ := proto.Marshal(&mixed)
+	if rec := e.do(t, "/v1/metrics", "application/x-protobuf", body, tokenA); rec.Code != http.StatusForbidden {
+		t.Errorf("batch with its own and another job: status %d, want 403", rec.Code)
+	}
+	if n := e.count(t, `SELECT (SELECT count(*) FROM jobs) + (SELECT count(*) FROM samples)`); n != 0 {
+		t.Fatalf("rejected requests stored %d rows, want none", n)
+	}
+
+	if rec := e.do(t, "/v1/metrics", "application/x-protobuf", batch(0, now, 0.4, 0.5), tokenA); rec.Code != http.StatusOK {
+		t.Fatalf("batch without check_run_id: %d %s", rec.Code, rec.Body)
+	}
+	if n := e.count(t, `SELECT count(*) FROM samples WHERE job_id = 555`); n != 2 {
+		t.Fatalf("samples on the token's job = %d, want 2", n)
+	}
+	b, _ := json.Marshal(identity(0))
+	if rec := e.do(t, "/v1/jobs/done", "application/json", b, tokenA); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"job_id":555`) {
+		t.Fatalf("done without check_run_id: %d %s, want job 555", rec.Code, rec.Body)
+	}
+	if n := e.count(t, `SELECT count(*) FROM jobs WHERE id = 556`); n != 0 {
+		t.Fatal("job 556 should have no rows")
 	}
 }
