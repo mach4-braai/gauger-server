@@ -28,12 +28,6 @@ func TestNavbarShowsBuildVersion(t *testing.T) {
 			},
 		},
 		{
-			version: "abc123def456-dirty",
-			want: []string{
-				`<a href="https://github.com/mach4-braai/gauger-server/commit/abc123def456">abc123def456-dirty</a>`,
-			},
-		},
-		{
 			version: "dev",
 			want:    []string{`<span class="version" title="build dev">dev</span>`},
 			absent:  []string{"/commit/"},

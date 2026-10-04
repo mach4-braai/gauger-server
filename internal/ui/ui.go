@@ -65,11 +65,10 @@ func (u *UI) funcs() template.FuncMap {
 	f := maps.Clone(funcs)
 	f["version"] = func() string { return u.Version }
 	f["versionURL"] = func() string {
-		sha := strings.TrimSuffix(u.Version, "-dirty")
-		if !shaRE.MatchString(sha) {
+		if !shaRE.MatchString(u.Version) {
 			return ""
 		}
-		return commitURL(u.GitHubURL, "mach4-braai/gauger-server", sha)
+		return commitURL(u.GitHubURL, "mach4-braai/gauger-server", u.Version)
 	}
 	return f
 }
