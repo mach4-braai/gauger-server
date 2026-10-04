@@ -34,6 +34,8 @@ type Fixtures struct {
 	// PRWorkflows name the runs of the dynamic CodeQL workflow in acme/api
 	// that are named after their pull requests.
 	PRWorkflows []string
+	// UnratedJob is a completed job on a runner label with no known rate.
+	UnratedJob int64
 }
 
 // Seed fills st with the dashboard fixtures, anchored at the current time.
@@ -55,6 +57,7 @@ func Fill(ctx context.Context, st *store.Store, now time.Time) (Fixtures, error)
 	s.jobPage()
 	s.trends()
 	s.actionRefs()
+	s.spend()
 	return s.fx, s.insert(ctx, st)
 }
 

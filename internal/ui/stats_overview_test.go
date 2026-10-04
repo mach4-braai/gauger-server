@@ -271,7 +271,7 @@ func TestTemplatePagesRenderOverFixtures(t *testing.T) {
 	fx := storetest.Seed(t, st)
 	h := dashboard(st, fx.Now)
 	for _, url := range []string{
-		"/sizing", "/spend",
+		"/sizing",
 	} {
 		get(t, h, url)
 	}

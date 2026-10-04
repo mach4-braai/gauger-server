@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/mach4-braai/gauger-server/internal/spend"
 	"github.com/mach4-braai/gauger-server/internal/store"
 	"github.com/mach4-braai/gauger-server/internal/ui/stats"
 )
@@ -84,36 +83,4 @@ func (u *UI) sizing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u.render(w, "sizing", map[string]any{"Filter": form, "Rows": rows, "GitHubURL": u.GitHubURL})
-}
-
-type spendRow struct {
-	store.SpendGroup
-	spend.Price
-}
-
-func (u *UI) spend(w http.ResponseWriter, r *http.Request) {
-	f, form, err := u.filter(r, 90)
-	if err != nil {
-		u.fail(w, err)
-		return
-	}
-	groups, err := u.Store.SpendGroups(r.Context(), f)
-	if err != nil {
-		u.fail(w, err)
-		return
-	}
-	var (
-		rows    []spendRow
-		total   float64
-		unknown int64
-	)
-	for _, g := range groups {
-		p := u.Rates.Price(g.Labels, g.Private, g.Minutes)
-		rows = append(rows, spendRow{g, p})
-		total += p.Cost
-		if !p.Known {
-			unknown += g.Minutes
-		}
-	}
-	u.render(w, "spend", map[string]any{"Filter": form, "Rows": rows, "Total": total, "UnknownMinutes": unknown})
 }
