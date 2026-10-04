@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"strconv"
 	"strings"
 	"testing"
@@ -28,6 +29,7 @@ import (
 	"github.com/mach4-braai/gauger-server/internal/ingest"
 	"github.com/mach4-braai/gauger-server/internal/reconcile"
 	"github.com/mach4-braai/gauger-server/internal/runner"
+	"github.com/mach4-braai/gauger-server/internal/server"
 	"github.com/mach4-braai/gauger-server/internal/store"
 	"github.com/mach4-braai/gauger-server/internal/store/storetest"
 )
@@ -528,5 +530,50 @@ func TestRepeatedBadTokensFromOneAddressGet429(t *testing.T) {
 	}
 	if n := e.count(t, `SELECT count(*) FROM jobs`); n != 0 {
 		t.Fatalf("jobs = %d, want none", n)
+	}
+}
+
+func TestFunnelRunnerNeedsOnlyAValidToken(t *testing.T) {
+	e := newEnv(t)
+	auth := &ingest.Auth{Verifier: e.iss.verifier(), OwnerID: ownerID, Failures: ingest.FailedAuthLimiter(), Jobs: ingest.JobLimiter()}
+	h := (&server.Server{FunnelRunner: auth.Wrap((&ingest.Handler{Store: e.st, Reconciler: e.rec}).Routes())}).FunnelRunnerHandler()
+	const relay = "100.100.100.100:443"
+	send := func(method, path, client string, body []byte, token string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, bytes.NewReader(body))
+		req = req.WithContext(ingest.WithClientAddr(req.Context(), netip.MustParseAddr(client)))
+		req.RemoteAddr = relay
+		req.Header.Set("Content-Type", "application/json")
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	start, _ := json.Marshal(identity(555))
+
+	if rec := send(http.MethodGet, "/healthz", "203.0.113.7", nil, ""); rec.Code != http.StatusOK || rec.Body.String() != "ok\n" {
+		t.Fatalf("healthz: %d %q", rec.Code, rec.Body)
+	}
+	if rec := send(http.MethodPost, "/v1/metrics", "203.0.113.7", make([]byte, 20<<20), ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("20 MiB body without a token: %d, want 401", rec.Code)
+	}
+	if rec := send(http.MethodPost, "/v1/jobs/start", "203.0.113.7", start, e.iss.token(t, nil)); rec.Code != http.StatusOK {
+		t.Fatalf("valid token from an untagged internet client: %d %s", rec.Code, rec.Body)
+	}
+
+	bad := e.iss.token(t, func(c jwt.MapClaims) { c["aud"] = "sts.amazonaws.com" })
+	limited := false
+	for range 50 {
+		if send(http.MethodPost, "/v1/jobs/start", "203.0.113.7", start, bad).Code == http.StatusTooManyRequests {
+			limited = true
+			break
+		}
+	}
+	if !limited {
+		t.Fatal("repeated bad tokens from one internet client should get 429")
+	}
+	if rec := send(http.MethodPost, "/v1/jobs/start", "198.51.100.9", start, bad); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("another client behind the same relay: %d, want 401", rec.Code)
 	}
 }

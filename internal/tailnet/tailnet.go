@@ -1,5 +1,5 @@
 // Package tailnet joins the tailnet with tsnet and opens gauger-server's
-// three listeners.
+// four listeners.
 package tailnet
 
 import (
@@ -23,6 +23,9 @@ type Node struct {
 
 	// Runner is tailnet only and serves OTLP and job lifecycle on :4318.
 	Runner net.Listener
+	// FunnelRunner is Funnel only and serves OTLP and job lifecycle on
+	// :10000.
+	FunnelRunner net.Listener
 	// UI is tailnet only and serves the web UI with TLS on :443.
 	UI net.Listener
 	// Webhook is Funnel only and serves GitHub webhooks on :8443.
@@ -75,8 +78,14 @@ func (n *Node) start(ctx context.Context) error {
 	if n.Webhook, err = n.srv.ListenFunnel("tcp", ":8443", tsnet.FunnelOnly()); err != nil {
 		return fmt.Errorf("listen funnel :8443: %w", err)
 	}
+	if n.FunnelRunner, err = n.srv.ListenFunnel("tcp", ":10000", tsnet.FunnelOnly()); err != nil {
+		return fmt.Errorf("listen funnel :10000: %w", err)
+	}
 	return nil
 }
+
+// RunnerURL is the public base URL gauger sends runner data to.
+func (n *Node) RunnerURL() string { return "https://" + n.DNSName + ":10000" }
 
 func (n *Node) Close() error { return n.srv.Close() }
 

@@ -27,9 +27,10 @@ type TagChecker interface {
 	HasTag(ctx context.Context, remoteAddr, tag string) (bool, error)
 }
 
-// Auth admits a request only when the tailnet peer carries Tag and the
-// bearer token is a valid GitHub OIDC token for OwnerID. Every request is
-// checked on its own, so gauger can switch to a fresh token mid-job.
+// Auth admits a request only when the bearer token is a valid GitHub OIDC
+// token for OwnerID and, when Tags is set, the tailnet peer carries Tag.
+// Every request is checked on its own, so gauger can switch to a fresh
+// token mid-job.
 //
 // Failures limits failed authentications per client address and answers
 // 429 before verifying anything once an address runs out. Jobs limits
@@ -74,11 +75,13 @@ func (a *Auth) Wrap(next http.Handler) http.Handler {
 			tooMany(w, d)
 			return
 		}
-		ok, err := a.Tags.HasTag(r.Context(), r.RemoteAddr, a.Tag)
-		if err != nil || !ok {
-			slog.Warn("runner request from an untagged peer", "remote", addr, "err", err)
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
+		if a.Tags != nil {
+			ok, err := a.Tags.HasTag(r.Context(), r.RemoteAddr, a.Tag)
+			if err != nil || !ok {
+				slog.Warn("runner request from an untagged peer", "remote", addr, "err", err)
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 		}
 		raw, found := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if !found || raw == "" {

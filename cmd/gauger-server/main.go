@@ -63,18 +63,19 @@ func run() error {
 		return err
 	}
 	defer node.Close()
-	slog.Info("joined tailnet", "dns_name", node.DNSName)
+	slog.Info("joined tailnet", "dns_name", node.DNSName, "runner_url", node.RunnerURL())
 
-	auth := &ingest.Auth{
-		Tags:     node,
-		Tag:      cfg.RunnerTag,
-		Verifier: ingest.NewVerifier(ctx, cfg.OIDCAudience),
-		OwnerID:  cfg.OIDCOwnerID,
-		Failures: ingest.FailedAuthLimiter(),
-		Jobs:     ingest.JobLimiter(),
+	verifier := ingest.NewVerifier(ctx, cfg.OIDCAudience)
+	failures, jobs := ingest.FailedAuthLimiter(), ingest.JobLimiter()
+	tailnetAuth := &ingest.Auth{
+		Tags: node, Tag: cfg.RunnerTag, Verifier: verifier, OwnerID: cfg.OIDCOwnerID,
+		Failures: failures, Jobs: jobs,
 	}
+	funnelAuth := &ingest.Auth{Verifier: verifier, OwnerID: cfg.OIDCOwnerID, Failures: failures, Jobs: jobs}
+	runnerRoutes := (&ingest.Handler{Store: st, Reconciler: rec}).Routes()
 	srv := &server.Server{
-		Runner: auth.Wrap((&ingest.Handler{Store: st, Reconciler: rec}).Routes()),
+		Runner:       tailnetAuth.Wrap(runnerRoutes),
+		FunnelRunner: funnelAuth.Wrap(runnerRoutes),
 		RunnerConnContext: func(ctx context.Context, c net.Conn) context.Context {
 			if src, ok := tailnet.FunnelSource(c); ok {
 				return ingest.WithClientAddr(ctx, src)
@@ -87,5 +88,5 @@ func run() error {
 			DNSName: node.DNSName, GitHubURL: cfg.GitHubURL, Wake: rec.Wake, Version: v,
 		}).Handler(),
 	}
-	return srv.Serve(ctx, server.Listeners{Runner: node.Runner, UI: node.UI, Webhook: node.Webhook})
+	return srv.Serve(ctx, server.Listeners{Runner: node.Runner, FunnelRunner: node.FunnelRunner, UI: node.UI, Webhook: node.Webhook})
 }
