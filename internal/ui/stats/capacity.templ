@@ -1,0 +1,84 @@
+package stats
+
+import "github.com/mach4-braai/gauger-server/internal/ui/chart"
+
+templ capacityIcon() {
+	@icon() {
+		<rect width="20" height="8" x="2" y="2" rx="2" ry="2"></rect>
+		<rect width="20" height="8" x="2" y="14" rx="2" ry="2"></rect>
+		<line x1="6" x2="6.01" y1="6" y2="6"></line>
+		<line x1="6" x2="6.01" y1="18" y2="18"></line>
+	}
+}
+
+templ capacityPage(v capacityView) {
+	@pageHeader("Capacity", v.Description)
+	@statGrid(170) {
+		for _, t := range v.Tiles {
+			@stat(t)
+		}
+	}
+	@card("Runner labels", "Jobs, minutes, estimated spend and queue time per set of labels") {
+		@labelTable(v.Labels)
+	}
+	@card("Job minutes", v.bucketLabel()+", by label") {
+		@chart.TimeChart(v.Minutes)
+		<div style="margin-top: 12px">
+			@chart.Legend(v.MinutesLegend)
+		</div>
+	}
+	@card("Queue time", v.bucketLabel()+", a job's start minus its creation") {
+		@chart.TimeChart(v.Queue)
+		<div style="margin-top: 12px">
+			@chart.Legend(v.QueueLegend)
+		</div>
+	}
+	@card("Queue p95 by hour of day", "UTC, by label") {
+		@chart.Chart(v.Hours)
+		<div style="margin-top: 12px">
+			@chart.Legend(v.HoursLegend)
+		</div>
+	}
+	@card("Runs by weekday and hour", "UTC, run attempts") {
+		@chart.Heatmap(v.Heat)
+	}
+	@card("Peak concurrency", v.bucketLabel()+", the most jobs running at once") {
+		@chart.TimeChart(v.Peak)
+	}
+}
+
+templ labelTable(rows []labelRow) {
+	if len(rows) == 0 {
+		@emptyState("No jobs in this range", "")
+	} else {
+		<div class="table-wrap">
+			<table class="table" id="labels">
+				<thead>
+					<tr>
+						<th>Label</th>
+						<th data-align="right">Jobs</th>
+						<th data-align="right">Minutes</th>
+						<th data-align="right">Spend</th>
+						<th data-align="right">Queue p50</th>
+						<th data-align="right">Queue p95</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, r := range rows {
+						<tr data-label={ r.Name }>
+							<td>
+								<span class="swatch" style={ templ.SafeCSS("background: " + r.Color) }></span>
+								{ r.Name }
+							</td>
+							<td data-align="right" data-col="jobs">{ r.Jobs }</td>
+							<td data-align="right" data-col="minutes">{ r.Minutes }</td>
+							<td data-align="right" data-col="spend" title={ r.SpendTitle }>{ r.Spend }</td>
+							<td data-align="right" data-col="queue-p50">{ r.QueueP50 }</td>
+							<td data-align="right" data-col="queue-p95">{ r.QueueP95 }</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}

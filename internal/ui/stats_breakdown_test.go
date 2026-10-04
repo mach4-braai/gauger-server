@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/mach4-braai/gauger-server/internal/store"
 	"github.com/mach4-braai/gauger-server/internal/store/storetest"
 	"github.com/mach4-braai/gauger-server/internal/ui/chart"
@@ -332,7 +334,14 @@ func TestBreakdownUnknownDimensionShowsRepositories(t *testing.T) {
 		names = append(names, r.name)
 	}
 	slices.Sort(names)
-	want := slices.Clone(fx.Repositories)
+	rs, err := st.Pool.Query(context.Background(), `SELECT DISTINCT repository FROM runs`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := pgx.CollectRows(rs, pgx.RowTo[string])
+	if err != nil {
+		t.Fatal(err)
+	}
 	slices.Sort(want)
 	if !slices.Equal(names, want) {
 		t.Errorf("rows = %v, want the repositories %v", names, want)
