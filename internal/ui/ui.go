@@ -9,8 +9,8 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/url"
 	"regexp"
-	"strings"
 	"time"
 
 	"github.com/mach4-braai/gauger-server/internal/github"
@@ -43,7 +43,7 @@ type UI struct {
 
 func (u *UI) Handler() http.Handler {
 	u.pages = map[string]*template.Template{}
-	for _, name := range []string{"setup", "setup_redirect", "sizing", "spend"} {
+	for _, name := range []string{"setup", "setup_redirect", "sizing"} {
 		u.pages[name] = template.Must(template.New("layout.html").Funcs(u.funcs()).
 			ParseFS(templateFS, "templates/layout.html", "templates/"+name+".html"))
 	}
@@ -54,7 +54,10 @@ func (u *UI) Handler() http.Handler {
 	mux.HandleFunc("GET /regressions", trendsRedirect)
 	mux.HandleFunc("GET /daily", trendsRedirect)
 	mux.HandleFunc("GET /sizing", u.sizing)
-	mux.HandleFunc("GET /spend", u.spend)
+	mux.HandleFunc("GET /spend", func(w http.ResponseWriter, r *http.Request) {
+		to := url.URL{Path: "/stats/spend", RawQuery: r.URL.RawQuery}
+		http.Redirect(w, r, to.String(), http.StatusFound)
+	})
 	mux.HandleFunc("GET /setup", u.setup)
 	mux.HandleFunc("POST /setup/manifest", u.setupManifest)
 	mux.HandleFunc("GET /setup/callback", u.setupCallback)
@@ -104,18 +107,6 @@ var funcs = template.FuncMap{
 			return ""
 		}
 		return fmt.Sprintf("%.1f of %.0f", *util**n, *n)
-	},
-	"usd":   func(v float64) string { return fmt.Sprintf("$%.2f", v) },
-	"join":  strings.Join,
-	"month": func(t time.Time) string { return t.UTC().Format("2006-01") },
-	"visibility": func(private *bool) string {
-		switch {
-		case private == nil:
-			return "(visibility unknown)"
-		case !*private:
-			return "(public)"
-		}
-		return ""
 	},
 	"workflowURL": github.WorkflowURL,
 	"stepURL":     github.StepURL,

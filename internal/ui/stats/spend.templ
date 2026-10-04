@@ -1,0 +1,176 @@
+package stats
+
+import (
+	"strconv"
+
+	"github.com/mach4-braai/gauger-server/internal/ui/chart"
+)
+
+templ spendIcon() {
+	@icon() {
+		<line x1="12" x2="12" y1="2" y2="22"></line>
+		<path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+	}
+}
+
+func (v spendView) bucketLabel() string {
+	if v.Step == chart.Hour {
+		return "Per hour, UTC"
+	}
+	return "Per day, UTC"
+}
+
+func (v spendView) chartTitle() string {
+	if v.Minutes {
+		return "Minutes by runner label"
+	}
+	return "Spend by runner label"
+}
+
+templ spendPage(v spendView) {
+	@pageHeader("Spend", v.Description)
+	@statGrid(170) {
+		for _, t := range v.Tiles {
+			@stat(t)
+		}
+	}
+	@card(v.chartTitle(), v.bucketLabel()) {
+		<div style="display: flex; justify-content: flex-end; margin-bottom: 12px">
+			<div class="segmented" data-size="sm" role="radiogroup" aria-label="Chart metric">
+				<label class="segmented-option">
+					<input type="radio" name="metric" value="spend" form={ chart.Form } checked?={ !v.Minutes }/>
+					Spend
+				</label>
+				<label class="segmented-option">
+					<input type="radio" name="metric" value="minutes" form={ chart.Form } checked?={ v.Minutes }/>
+					Minutes
+				</label>
+			</div>
+		</div>
+		@chart.TimeChart(v.Chart)
+		<div style="margin-top: 12px">
+			@chart.Legend(v.Legend)
+		</div>
+	}
+	for _, t := range v.Tables {
+		@card(t.Title, t.Description) {
+			@spendTableView(t)
+		}
+	}
+	@card("By month", "Completed jobs per repository and runner label. Each row's rate applies to all its minutes.") {
+		@monthTable(v.Months)
+	}
+	<p id="spend-note" class="muted rise" style="font-size: 12.5px; max-width: 80ch">
+		This is an estimate. Each job's minutes are rounded up to a whole minute and priced at GitHub's published
+		rates. Included plan minutes are not subtracted. Larger runners need their rates in GAUGER_RUNNER_RATES,
+		and minutes on labels without a rate are counted separately, not as $0.
+	</p>
+}
+
+templ spendTableView(t spendTable) {
+	if len(t.Rows) == 0 {
+		@emptyState("No completed jobs", "Nothing in this range ran to completion.")
+	} else {
+		<div class="table-wrap">
+			<table id={ "spend-" + t.ID } class="table">
+				<thead>
+					<tr>
+						<th>{ t.Title }</th>
+						<th data-align="right">Jobs</th>
+						<th data-align="right">Minutes</th>
+						<th data-align="right">Spend</th>
+						<th>Trend</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, r := range t.Rows {
+						<tr data-name={ r.Name }>
+							<td>
+								if r.Href != "" && r.Local {
+									<a href={ templ.SafeURL(r.Href) } data-nav>{ r.Name }</a>
+								} else if r.Href != "" {
+									<a href={ templ.SafeURL(r.Href) } rel="noreferrer">{ r.Name }</a>
+								} else {
+									{ r.Name }
+								}
+								if r.Detail != "" {
+									<span class="muted">{ r.Detail }</span>
+								}
+							</td>
+							<td class="num" data-align="right" data-col="jobs">{ r.Jobs }</td>
+							<td class="num" data-align="right" data-col="minutes">{ r.Minutes }</td>
+							<td class="num" data-align="right" data-col="spend">
+								if r.NoRate {
+									<span class="badge" data-tone="warn" title="No runner label has a rate. Set GAUGER_RUNNER_RATES.">unknown</span>
+								} else {
+									{ r.Spend }
+									if r.Partial != "" {
+										<div class="muted micro">{ r.Partial }</div>
+									}
+								}
+							</td>
+							<td style="width: 140px">
+								@chart.Sparkline(r.Spark, "var(--chart-primary)")
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+		if t.Total > len(t.Rows) {
+			<div class="table-more">{ strconv.Itoa(t.Total - len(t.Rows)) } more not shown</div>
+		}
+	}
+}
+
+templ monthTable(rows []monthRow) {
+	if len(rows) == 0 {
+		@emptyState("No completed jobs", "Nothing in this range ran to completion.")
+	} else {
+		<div class="table-wrap">
+			<table id="spend-months" class="table">
+				<thead>
+					<tr>
+						<th>Month</th>
+						<th>Repository</th>
+						<th>Runner labels</th>
+						<th data-align="right">Jobs</th>
+						<th data-align="right">Minutes</th>
+						<th data-align="right">Rate</th>
+						<th data-align="right">Cost</th>
+					</tr>
+				</thead>
+				<tbody>
+					for _, m := range rows {
+						<tr data-month={ m.Month } data-repo={ m.Repository } data-labels={ m.Labels }>
+							<td class="num">{ m.Month }</td>
+							<td>
+								{ m.Repository }
+								if m.Visibility != "" {
+									<span class="muted">{ m.Visibility }</span>
+								}
+							</td>
+							<td>{ m.Labels }</td>
+							<td class="num" data-align="right" data-col="jobs">{ m.Jobs }</td>
+							<td class="num" data-align="right" data-col="minutes">{ m.Minutes }</td>
+							<td class="num" data-align="right" data-col="rate">
+								if m.NoRate {
+									<span class="badge" data-tone="warn">unknown</span>
+								} else {
+									{ m.Rate }
+								}
+							</td>
+							<td class="num" data-align="right" data-col="cost">
+								if m.NoRate {
+									<span class="badge" data-tone="warn">unknown</span>
+								} else {
+									{ m.Cost }
+								}
+							</td>
+						</tr>
+					}
+				</tbody>
+			</table>
+		</div>
+	}
+}
