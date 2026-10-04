@@ -73,11 +73,14 @@ func (s *Server) Serve(ctx context.Context, l Listeners) error {
 		ln      net.Listener
 		h       http.Handler
 		connCtx func(context.Context, net.Conn) context.Context
+		// streams marks a listener whose handlers hold responses open, so
+		// shutdown cancels their requests instead of waiting on them.
+		streams bool
 	}{
-		{"runner", l.Runner, s.RunnerHandler(), s.RunnerConnContext},
-		{"funnel-runner", l.FunnelRunner, s.FunnelRunnerHandler(), s.RunnerConnContext},
-		{"ui", l.UI, s.UIHandler(), nil},
-		{"webhook", l.Webhook, s.WebhookHandler(), nil},
+		{"runner", l.Runner, s.RunnerHandler(), s.RunnerConnContext, false},
+		{"funnel-runner", l.FunnelRunner, s.FunnelRunnerHandler(), s.RunnerConnContext, false},
+		{"ui", l.UI, s.UIHandler(), nil, true},
+		{"webhook", l.Webhook, s.WebhookHandler(), nil, false},
 	} {
 		srv := &http.Server{
 			Handler:           x.h,
@@ -85,6 +88,9 @@ func (s *Server) Serve(ctx context.Context, l Listeners) error {
 			ReadHeaderTimeout: 10 * time.Second,
 			ReadTimeout:       time.Minute,
 			IdleTimeout:       2 * time.Minute,
+		}
+		if x.streams {
+			srv.BaseContext = func(net.Listener) context.Context { return ctx }
 		}
 		g.Go(func() error {
 			slog.Info("serving", "listener", x.name, "addr", x.ln.Addr().String())

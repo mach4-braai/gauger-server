@@ -134,7 +134,7 @@ func (u *UI) setupBackfill(w http.ResponseWriter, r *http.Request) {
 	now := time.Now()
 	expires := now.Add(reconcile.TaskLifetime)
 	for _, repo := range repos {
-		err := store.EnqueueTask(r.Context(), u.Store.Pool, store.KindBackfill, store.BackfillKey(repo, since), repo, now, expires)
+		err := store.EnqueueTask(r.Context(), u.Store, store.KindBackfill, store.BackfillKey(repo, since), repo, now, expires)
 		if err != nil {
 			u.fail(w, err)
 			return

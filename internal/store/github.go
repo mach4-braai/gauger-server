@@ -19,8 +19,23 @@ type Execer interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 }
 
+// InTx runs fn in a transaction and signals Changed once it commits.
 func (s *Store) InTx(ctx context.Context, fn func(pgx.Tx) error) error {
-	return pgx.BeginFunc(ctx, s.Pool, fn)
+	if err := pgx.BeginFunc(ctx, s.Pool, fn); err != nil {
+		return err
+	}
+	s.bump()
+	return nil
+}
+
+// Exec runs a write on the pool and signals Changed once it succeeds. It
+// lets callers pass the Store where an Execer is wanted.
+func (s *Store) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	tag, err := s.Pool.Exec(ctx, sql, args...)
+	if err == nil {
+		s.bump()
+	}
+	return tag, err
 }
 
 // Credentials implements github.CredentialSource from the App the manifest
@@ -253,7 +268,8 @@ type Task struct {
 	ExpiresAt  time.Time
 }
 
-// EnqueueTask adds a task, or moves an existing one's next run earlier.
+// EnqueueTask adds a task, or moves an existing one's next run earlier. Pass
+// a transaction, or the Store so the write signals Changed.
 func EnqueueTask(ctx context.Context, q Execer, kind, key, repo string, next, expires time.Time) error {
 	_, err := q.Exec(ctx, `
 		INSERT INTO tasks (kind, key, repository, next_at, expires_at) VALUES ($1, $2, $3, $4, $5)
@@ -273,12 +289,12 @@ func (s *Store) DueTasks(ctx context.Context, now time.Time, limit int) ([]Task,
 }
 
 func (s *Store) DeleteTask(ctx context.Context, kind, key string) error {
-	_, err := s.Pool.Exec(ctx, `DELETE FROM tasks WHERE kind = $1 AND key = $2`, kind, key)
+	_, err := s.Exec(ctx, `DELETE FROM tasks WHERE kind = $1 AND key = $2`, kind, key)
 	return err
 }
 
 func (s *Store) RescheduleTask(ctx context.Context, kind, key string, attempts int, next time.Time, lastErr string) error {
-	_, err := s.Pool.Exec(ctx, `
+	_, err := s.Exec(ctx, `
 		UPDATE tasks SET attempts = $3, next_at = $4, last_error = $5 WHERE kind = $1 AND key = $2`,
 		kind, key, attempts, next, nullIfEmpty(lastErr))
 	return err
