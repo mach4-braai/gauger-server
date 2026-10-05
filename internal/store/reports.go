@@ -373,12 +373,21 @@ func (s *Store) DailyDurations(ctx context.Context, f Filter, bucket, workflow, 
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[DailyDuration])
 }
 
-func (s *Store) Repositories(ctx context.Context) ([]string, error) {
-	rows, err := s.Pool.Query(ctx, `SELECT DISTINCT repository FROM jobs ORDER BY 1`)
+type Repository struct {
+	Name    string
+	Private *bool
+}
+
+func (s *Store) Repositories(ctx context.Context) ([]Repository, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT j.repository, rp.private
+		FROM (SELECT DISTINCT repository FROM jobs) j
+		LEFT JOIN repositories rp ON rp.full_name = j.repository
+		ORDER BY 1`)
 	if err != nil {
 		return nil, err
 	}
-	return pgx.CollectRows(rows, pgx.RowTo[string])
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[Repository])
 }
 
 // Workflows returns the distinct non-empty workflow labels for a
