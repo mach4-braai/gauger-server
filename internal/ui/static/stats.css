@@ -813,6 +813,7 @@ kbd {
    Stat
    ========================================================================== */
 .stat-grid {
+	position: relative;
 	display: grid;
 	grid-template-columns: repeat(auto-fit, minmax(var(--stat-min, 170px), 1fr));
 	border-radius: var(--r-card);
@@ -2052,4 +2053,101 @@ a.bar-list-row:hover {
 .stale {
 	opacity: 0.55;
 	transition: opacity var(--dur-2) var(--ease);
+}
+
+.btn[aria-pressed="true"] {
+	background: var(--selected);
+	color: var(--ink-1);
+}
+
+.feedback-btn {
+	display: none;
+	margin-left: auto;
+}
+
+:root[data-feedback="on"] .feedback-btn {
+	display: inline-flex;
+}
+
+.feedback-corner {
+	position: absolute;
+	top: 6px;
+	right: 6px;
+	z-index: 2;
+}
+
+.modal {
+	width: min(560px, calc(100vw - 16px));
+	max-height: calc(100dvh - 16px);
+	margin: auto;
+	padding: 0;
+	border-radius: var(--r-panel);
+	border: 1px solid var(--line-2);
+	background: var(--overlay);
+	backdrop-filter: blur(20px) saturate(170%);
+	-webkit-backdrop-filter: blur(20px) saturate(170%);
+	box-shadow: var(--shadow-3);
+	color: var(--ink-1);
+	overflow: hidden;
+}
+
+.modal[open] {
+	animation: modal-in var(--dur-3) var(--ease-out) both;
+}
+
+.modal::backdrop {
+	background: rgba(0, 0, 0, 0.5);
+	animation: fade var(--dur-2) var(--ease) both;
+}
+
+@keyframes modal-in {
+	from {
+		transform: translateY(8px) scale(0.98);
+		opacity: 0;
+	}
+	to {
+		transform: none;
+		opacity: 1;
+	}
+}
+
+.modal-form {
+	display: flex;
+	flex-direction: column;
+	max-height: calc(100dvh - 18px);
+}
+
+.modal-title {
+	width: 100%;
+	font-size: 15px;
+	font-weight: 600;
+	letter-spacing: -0.01em;
+}
+
+.modal-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 12px 16px 16px 20px;
+	border-top: 1px solid var(--line-1);
+}
+
+.modal .segmented {
+	align-self: flex-start;
+}
+
+.field {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+
+textarea.input {
+	height: auto;
+	padding: 8px 10px;
+	font: inherit;
+	font-size: 13px;
+	line-height: 1.5;
+	resize: vertical;
 }

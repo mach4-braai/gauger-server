@@ -78,6 +78,7 @@ The UI is a dashboard under `/stats/`, rendered by Go with templ and Datastar. `
 - **Filters.** Every page shares a range (`24h`, `7d`, `30d`, `90d` or `all`), a repository and an event. They live in the query string, so a URL reproduces a view. A change updates the page in place. With JavaScript off, the filter form reloads it.
 - **Time.** Buckets, hours and weekdays are UTC.
 - **Live.** A page re-renders over one SSE stream when the server writes to the database.
+- **Feedback.** A toggle in the header shows a button on each component. The button opens a form that drafts an issue on `mach4-braai/gauger-server`, with the page path without its host, the build, and either a comment (label `enhancement`) or expected and actual (label `bug`). Submitting opens GitHub's new-issue page with those fields filled in; the server sends nothing.
 - **Setup.** `/setup` and the manifest flow stay on `html/template`, and link to `/stats/`.
 - **Old URLs.** `/`, `/jobs/{id}`, `/steps`, `/regressions`, `/daily`, `/sizing` and `/spend` redirect with 302 to their dashboard page and keep their query.
 

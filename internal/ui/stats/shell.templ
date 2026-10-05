@@ -15,8 +15,9 @@ type shell struct {
 	Repos      []string
 	Events     []string
 	Live       string
-	Version    string
-	VersionURL string
+	Version     string
+	VersionURL  string
+	FeedbackURL string
 	Body       templ.Component
 }
 
@@ -57,6 +58,35 @@ const themeScript = `(function () {
 	apply(saved());
 })();`
 
+const feedbackScript = `(function () {
+	var key = "gauger-feedback", root = document.documentElement, tick = "\u0060";
+	try { if (localStorage.getItem(key) === "on") root.dataset.feedback = "on"; } catch (e) {}
+	window.gaugerFeedback = {
+		limit: 8000,
+		toggle: function () {
+			var on = root.dataset.feedback !== "on";
+			if (on) root.dataset.feedback = "on"; else delete root.dataset.feedback;
+			try { localStorage.setItem(key, on ? "on" : "off"); } catch (e) {}
+			return on;
+		},
+		url: function (d, fb) {
+			var lines = ["**Component:** " + fb.component, "**Page:** " + tick + fb.path + tick, "**Build:** " + (d.build || "unknown"), ""];
+			if (fb.kind === "bug") lines.push("### Expected", "", fb.expected, "", "### Actual", "", fb.actual);
+			else lines.push("### Comment", "", fb.comment);
+			return d.issues + "?title=" + encodeURIComponent(fb.title) + "&labels=" + (fb.kind === "bug" ? "bug" : "enhancement") + "&body=" + encodeURIComponent(lines.join("\n"));
+		}
+	};
+})();`
+
+const feedbackLeft = `gaugerFeedback.limit - gaugerFeedback.url(document.getElementById('feedback').dataset, $_fb).length`
+
+const feedbackSubmit = `const d = document.getElementById('feedback'); window.open(gaugerFeedback.url(d.dataset, $_fb), '_blank', 'noopener'); $_fb.comment = ''; $_fb.expected = ''; $_fb.actual = ''; d.close()`
+
+func openFeedback(component string) string {
+	c, _ := json.Marshal(component)
+	return "const c = document.getElementById('page').dataset.page + ' · ' + " + string(c) + "; if ($_fb.component !== c) { $_fb.component = c; $_fb.title = 'Issue: ' + c; $_fb.comment = ''; $_fb.expected = ''; $_fb.actual = '' } $_fb.path = location.pathname + location.search; document.getElementById('feedback').showModal()"
+}
+
 templ layout(sh shell) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -64,7 +94,7 @@ templ layout(sh shell) {
 			<meta charset="utf-8"/>
 			<meta name="viewport" content="width=device-width, initial-scale=1"/>
 			<title>{ sh.Title } · gauger</title>
-			@templ.Raw("<script>" + themeScript + "</script>")
+			@templ.Raw("<script>" + themeScript + feedbackScript + "</script>")
 			<link rel="stylesheet" href={ static.Path("stats.css") }/>
 			<script type="module" src={ static.Path("datastar.js") }></script>
 		</head>
@@ -88,6 +118,7 @@ templ layout(sh shell) {
 						<span class="topbar-version micro mono" title={ "build " + sh.Version }>{ sh.Version }</span>
 					}
 					@liveChip()
+					@feedbackToggle()
 					@themeToggle()
 				</div>
 			</header>
@@ -98,16 +129,17 @@ templ layout(sh shell) {
 			<main class="shell-panel">
 				<div class="shell-content">
 					@filterBar(sh)
-					@pageBody(sh.Body)
+					@pageBody(sh.Title, sh.Body)
 				</div>
 			</main>
+			@feedbackDialog(sh.FeedbackURL, sh.Version)
 		</body>
 	</html>
 }
 
 // pageBody is the element a Datastar request replaces.
-templ pageBody(body templ.Component) {
-	<div id="page" class="page" data-class:stale="$_loading">
+templ pageBody(title string, body templ.Component) {
+	<div id="page" class="page" data-page={ title } data-class:stale="$_loading">
 		@body
 	</div>
 }
@@ -150,6 +182,7 @@ func navGroups() [][]navItem {
 // Datastar request patches it along with the page.
 templ navList(path string, sel selection) {
 	<nav id="nav" class="sidebar" aria-label="Pages">
+		@feedbackCorner("Sidebar")
 		for _, group := range navGroups() {
 			<div class="nav-group">
 				<div class="nav-heading">{ group[0].group }</div>
@@ -197,6 +230,7 @@ templ filterBar(sh shell) {
 			}
 		</div>
 		<noscript><button class="btn" data-size="sm" type="submit">Apply</button></noscript>
+		@feedbackButton("Filters")
 	</form>
 }
 
@@ -230,6 +264,94 @@ templ themeToggle() {
 			@moonIcon()
 		</span>
 	</button>
+}
+
+templ feedbackToggle() {
+	<button
+		type="button"
+		class="btn"
+		data-variant="ghost"
+		data-icon="true"
+		aria-label="Feedback mode"
+		aria-pressed="false"
+		title="Feedback mode: a button on each component drafts a GitHub issue"
+		data-signals="{_feedback: document.documentElement.dataset.feedback === 'on'}"
+		data-attr:aria-pressed="$_feedback ? 'true' : 'false'"
+		data-on:click="$_feedback = gaugerFeedback.toggle()"
+	>
+		@feedbackIcon()
+	</button>
+}
+
+templ feedbackButton(component string) {
+	<button
+		type="button"
+		class="btn feedback-btn"
+		data-variant="ghost"
+		data-icon="true"
+		data-size="sm"
+		aria-label={ "Give feedback on " + component }
+		title={ "Give feedback on " + component }
+		data-on:click={ openFeedback(component) }
+	>
+		@feedbackAddIcon()
+	</button>
+}
+
+templ feedbackCorner(component string) {
+	<div class="feedback-corner">
+		@feedbackButton(component)
+	</div>
+}
+
+templ feedbackDialog(issues, build string) {
+	<dialog
+		id="feedback"
+		class="modal"
+		aria-labelledby="feedback-title"
+		data-issues={ issues }
+		data-build={ build }
+		data-signals="{_fb: {component: '', title: '', path: '', kind: 'feedback', comment: '', expected: '', actual: ''}}"
+		data-on:click="evt.target === el && el.close()"
+	>
+		<form class="modal-form" data-on:submit__prevent={ feedbackSubmit }>
+			<header class="drawer-header">
+				<div class="drawer-titles">
+					<input id="feedback-title" class="input modal-title" aria-label="Issue title" required data-bind="_fb.title"/>
+					<div class="drawer-subtitle mono truncate" data-text="$_fb.path"></div>
+				</div>
+				<button type="button" class="btn" data-variant="ghost" data-size="sm" data-on:click="document.getElementById('feedback').close()">Close</button>
+			</header>
+			<div class="drawer-body">
+				<div class="segmented" role="radiogroup" aria-label="Kind" data-size="sm">
+					<label class="segmented-option">
+						<input type="radio" name="feedback-kind" value="feedback" data-bind="_fb.kind"/>
+						Feedback
+					</label>
+					<label class="segmented-option">
+						<input type="radio" name="feedback-kind" value="bug" data-bind="_fb.kind"/>
+						Bug
+					</label>
+				</div>
+				<label class="field" data-show="$_fb.kind !== 'bug'">
+					<span class="micro">Comment</span>
+					<textarea class="input" rows="6" data-bind="_fb.comment"></textarea>
+				</label>
+				<label class="field" style="display: none" data-show="$_fb.kind === 'bug'">
+					<span class="micro">Expected</span>
+					<textarea class="input" rows="4" data-bind="_fb.expected"></textarea>
+				</label>
+				<label class="field" style="display: none" data-show="$_fb.kind === 'bug'">
+					<span class="micro">Actual</span>
+					<textarea class="input" rows="4" data-bind="_fb.actual"></textarea>
+				</label>
+			</div>
+			<footer class="modal-footer">
+				<span class="micro" data-text={ feedbackLeft + " + ' characters left'" }></span>
+				<button type="submit" class="btn" data-variant="primary" data-attr:disabled={ feedbackLeft + " < 0" }>Open issue on GitHub</button>
+			</footer>
+		</form>
+	</dialog>
 }
 
 templ mark() {

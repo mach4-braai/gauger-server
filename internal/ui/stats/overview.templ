@@ -13,12 +13,12 @@ templ overviewIcon() {
 
 templ overviewPage(v overviewView) {
 	@pageHeader("Overview", v.Description)
-	@statGrid(170) {
+	@statGrid("Headline tiles", 170) {
 		for _, t := range v.Main {
 			@stat(t)
 		}
 	}
-	@statGrid(140) {
+	@statGrid("Detail tiles", 140) {
 		for _, t := range v.Detail {
 			@stat(t)
 		}

@@ -14,7 +14,7 @@ templ wasteIcon() {
 
 templ wastePage(v wasteView) {
 	@pageHeader("Waste", v.Description)
-	@statGrid(170) {
+	@statGrid("Tiles", 170) {
 		for _, t := range v.Tiles {
 			@stat(t)
 		}
@@ -112,6 +112,7 @@ templ wasteSection(title, description string) {
 				<h2 class="card-title">{ title }</h2>
 				<p class="card-description">{ description }</p>
 			</div>
+			@feedbackButton(title)
 		</header>
 		<div class="card-body" data-flush="true">
 			{ children... }

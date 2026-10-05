@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mach4-braai/gauger-server/internal/github"
 	"github.com/mach4-braai/gauger-server/internal/spend"
 	"github.com/mach4-braai/gauger-server/internal/store"
 	"github.com/mach4-braai/gauger-server/internal/store/storetest"
@@ -60,7 +61,10 @@ func run() error {
 		return err
 	}
 	srv := &http.Server{
-		Handler:           (&stats.Server{Store: st, Rates: spend.DefaultRates, GitHubURL: "https://github.com", Version: "dev"}).Handler(),
+		Handler: (&stats.Server{
+			Store: st, Rates: spend.DefaultRates, GitHubURL: "https://github.com", Version: "dev",
+			FeedbackURL: github.NewIssueURL("https://github.com", "mach4-braai/gauger-server"),
+		}).Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext:       func(net.Listener) context.Context { return ctx },
 	}

@@ -29,6 +29,10 @@ func BranchURL(ghURL, repo, branch string) string {
 	return fmt.Sprintf("%s/%s/tree/%s", ghURL, repo, branch)
 }
 
+func NewIssueURL(ghURL, repo string) string {
+	return fmt.Sprintf("%s/%s/issues/new", ghURL, repo)
+}
+
 // StepURL is the step's log, the job's html_url plus its step anchor.
 // Empty html_url means no link.
 func StepURL(htmlURL string, number int) string {

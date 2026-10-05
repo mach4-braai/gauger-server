@@ -28,8 +28,9 @@ type Server struct {
 	// GitHubURL is the web origin for links to GitHub.
 	GitHubURL string
 	// Version identifies the build in the sidebar; VersionURL links it.
-	Version    string
-	VersionURL string
+	Version     string
+	VersionURL  string
+	FeedbackURL string
 	// Now is the clock the filter's window ends at. Nil uses time.Now.
 	Now func() time.Time
 }
@@ -89,7 +90,7 @@ func (s *Server) page(rt route) http.Handler {
 			http.Error(w, "query failed", http.StatusInternalServerError)
 			return
 		}
-		sh := shell{Title: rt.title, Path: r.URL.Path, Sel: sel, Live: liveURL(r.URL), Version: s.Version, VersionURL: s.VersionURL, Body: body}
+		sh := shell{Title: rt.title, Path: r.URL.Path, Sel: sel, Live: liveURL(r.URL), Version: s.Version, VersionURL: s.VersionURL, FeedbackURL: s.FeedbackURL, Body: body}
 		if sh.Repos, err = s.Store.Repositories(r.Context()); err == nil {
 			sh.Events, err = s.Store.Events(r.Context())
 		}
@@ -102,7 +103,7 @@ func (s *Server) page(rt route) http.Handler {
 			to, _ := json.Marshal(r.URL.RequestURI())
 			sse := datastar.NewSSE(w, r)
 			err := errors.Join(
-				sse.PatchElementTempl(pageBody(body)),
+				sse.PatchElementTempl(pageBody(rt.title, body)),
 				sse.PatchElementTempl(navList(r.URL.Path, sel)),
 				sse.PatchElementTempl(filterBar(sh)),
 				sse.PatchElementTempl(liveStream(sh.Live)),

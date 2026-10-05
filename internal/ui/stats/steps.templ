@@ -12,7 +12,7 @@ templ stepsIcon() {
 
 templ stepsPage(v stepsView) {
 	@pageHeader("Steps", v.Description)
-	@statGrid(170) {
+	@statGrid("Tiles", 170) {
 		for _, t := range v.Tiles {
 			@stat(t)
 		}

@@ -17,6 +17,7 @@ templ pageHeader(title, description string) {
 				<p class="page-description">{ description }</p>
 			}
 		</div>
+		@feedbackButton("Page header")
 	</header>
 }
 
@@ -33,6 +34,9 @@ templ card(title, description string) {
 						<p class="card-description">{ description }</p>
 					}
 				</div>
+				if title != "" {
+					@feedbackButton(title)
+				}
 			</header>
 		}
 		<div class="card-body">
@@ -42,8 +46,11 @@ templ card(title, description string) {
 }
 
 // statGrid lays stat tiles out in one card, each at least min pixels wide.
-templ statGrid(min int) {
+templ statGrid(name string, min int) {
 	<div class="stat-grid rise" style={ templ.SafeCSS("--stat-min: " + strconv.Itoa(min) + "px") }>
+		if name != "" {
+			@feedbackCorner(name)
+		}
 		{ children... }
 	</div>
 }

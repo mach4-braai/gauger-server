@@ -11,7 +11,7 @@ templ sizingIcon() {
 
 templ sizingPage(v sizingView) {
 	@pageHeader("Sizing", v.Description)
-	@statGrid(190) {
+	@statGrid("Tiles", 190) {
 		for _, t := range v.Tiles {
 			@stat(t)
 		}

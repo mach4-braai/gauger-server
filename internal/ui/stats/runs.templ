@@ -83,6 +83,7 @@ templ runsPage(v runsView) {
 						@runsClearIcon()
 					</a>
 				}
+				@feedbackButton("Jobs table")
 			</div>
 			if len(v.Rows) == 0 {
 				@emptyState("No jobs match", "Widen the range or remove a filter.")
