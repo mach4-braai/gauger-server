@@ -59,6 +59,7 @@ func (u *UI) Handler() http.Handler {
 	dashboard := (&stats.Server{
 		Store: u.Store, Rates: u.Rates, GitHubURL: u.GitHubURL,
 		Version: u.Version, VersionURL: u.versionURL(), Now: u.Now,
+		FeedbackURL: github.NewIssueURL(u.GitHubURL, sourceRepo),
 	}).Handler()
 	mux.Handle("/stats/", dashboard)
 	mux.Handle("/static/", dashboard)
@@ -78,10 +79,12 @@ func (u *UI) versionURL() string {
 	if !shaRE.MatchString(u.Version) {
 		return ""
 	}
-	return github.CommitURL(u.GitHubURL, "mach4-braai/gauger-server", u.Version)
+	return github.CommitURL(u.GitHubURL, sourceRepo, u.Version)
 }
 
 var shaRE = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
+
+const sourceRepo = "mach4-braai/gauger-server"
 
 func (u *UI) render(w http.ResponseWriter, page string, data any) {
 	var buf bytes.Buffer

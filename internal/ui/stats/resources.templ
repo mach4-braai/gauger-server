@@ -42,7 +42,7 @@ templ resourcesPage(v resourcesView, by string) {
 			</label>
 		</div>
 	</div>
-	@statGrid(170) {
+	@statGrid("Tiles", 170) {
 		for _, t := range v.Tiles {
 			@stat(t)
 		}
@@ -63,7 +63,7 @@ templ resourcesPage(v resourcesView, by string) {
 				@chart.Legend(v.CPULegend)
 			</div>
 			<div style="margin-top: 16px">
-				@statGrid(240) {
+				@statGrid("", 240) {
 					for _, t := range v.CPUCallout {
 						@stat(t)
 					}

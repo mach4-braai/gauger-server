@@ -47,7 +47,7 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request, rt route) {
 	}
 	sse := datastar.NewSSE(w, r)
 	rc := http.NewResponseController(w)
-	if sse.PatchElementTempl(pageBody(body)) != nil {
+	if sse.PatchElementTempl(pageBody(rt.title, body)) != nil {
 		return
 	}
 	last := time.Now()
@@ -74,7 +74,7 @@ func (s *Server) live(w http.ResponseWriter, r *http.Request, rt route) {
 				slog.Error("stats live", "path", r.URL.Path, "err", err)
 				continue
 			}
-			if sse.PatchElementTempl(pageBody(body)) != nil {
+			if sse.PatchElementTempl(pageBody(rt.title, body)) != nil {
 				return
 			}
 			last = time.Now()

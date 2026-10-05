@@ -37,6 +37,7 @@ templ jobPage(v jobView) {
 				}
 			</p>
 		</div>
+		@feedbackButton("Page header")
 	</header>
 	@card("Job", "") {
 		<div class="kv">
@@ -124,6 +125,7 @@ templ jobDrawerPanel(d *jobDrawer) {
 					}
 				</div>
 			</div>
+			@feedbackButton("Step drawer")
 			<a class="btn" data-variant="ghost" data-size="sm" href={ d.Close } data-nav>Close</a>
 		</header>
 		<div class="drawer-body">

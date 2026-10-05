@@ -28,6 +28,8 @@ Self-hosted server and web UI that joins GitHub Actions webhook timings with [ga
 
 The UI is a dashboard under `/stats/`, one page per view, behind a sidebar. Every page filters by range (24h, 7d, 30d, 90d or all), repository and event. A filter change or a legend toggle updates the page in place and the URL with it, so a pasted URL shows the same view. With JavaScript off the filters reload the page. A page refreshes itself when the server writes new data, and a chip in the header shows whether that stream is live. Times are UTC. See [ADR 0002](docs/adr/0002-datastar-dashboard.md).
 
+The feedback toggle in the header puts a button on each card, tile row, header, the filter bar, the sidebar and the step drawer. The button opens a form for a comment, or for expected and actual behaviour when it's a bug. Submitting opens a prefilled new issue on `mach4-braai/gauger-server` in a new tab, labelled `enhancement` or `bug`. The issue carries the page path without the host, since the repository is public and the host is the tailnet name.
+
 `/setup` creates the GitHub App and queues backfills. The old report URLs (`/`, `/jobs/{id}`, `/steps`, `/regressions`, `/daily`, `/sizing` and `/spend`) redirect to their dashboard page and keep their query string.
 
 - **Overview** at `/stats/`. Cards for runs, jobs, steps, job minutes, estimated spend, run and job success rate, run duration and queue time p50 and p95, and gauger coverage, above a chart of runs per hour or day stacked by conclusion.

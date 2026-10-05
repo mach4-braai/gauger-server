@@ -12,7 +12,7 @@ templ failuresIcon() {
 
 templ failuresPage(v failuresView) {
 	@pageHeader("Failures", v.Description)
-	@statGrid(140) {
+	@statGrid("Tiles", 140) {
 		for _, t := range v.Tiles {
 			@stat(t)
 		}
