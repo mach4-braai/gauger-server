@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"slices"
 
+	"github.com/mach4-braai/gauger-server/internal/store"
 	"github.com/mach4-braai/gauger-server/internal/ui/chart"
 	"github.com/mach4-braai/gauger-server/internal/ui/static"
 )
@@ -12,7 +13,7 @@ type shell struct {
 	Title      string
 	Path       string
 	Sel        selection
-	Repos      []string
+	Repos      []store.Repository
 	Events     []string
 	Live       string
 	Version     string
@@ -211,8 +212,12 @@ templ filterBar(sh shell) {
 	<form id={ chart.Form } class="filter-bar" method="get" action={ sh.Path } data-on:submit__prevent={ applyFilters }>
 		<select class="input" name="repo" aria-label="Repository">
 			<option value="">All repositories</option>
-			for _, r := range withSelected(sh.Repos, sh.Sel.Repo) {
-				<option value={ r } selected?={ r == sh.Sel.Repo }>{ r }</option>
+			for _, g := range repoGroups(sh.Repos, sh.Sel.Repo) {
+				<optgroup label={ g.label }>
+					for _, r := range g.names {
+						<option value={ r } selected?={ r == sh.Sel.Repo }>{ r }</option>
+					}
+				</optgroup>
 			}
 		</select>
 		<select class="input" name="event" aria-label="Event">
@@ -241,6 +246,30 @@ func withSelected(options []string, selected string) []string {
 		return options
 	}
 	return append(slices.Clone(options), selected)
+}
+
+type repoGroup struct {
+	label string
+	names []string
+}
+
+func repoGroups(repos []store.Repository, selected string) []repoGroup {
+	groups := []repoGroup{{label: "Private"}, {label: "Public"}, {label: "Unknown visibility"}}
+	found := selected == ""
+	for _, r := range repos {
+		i := 2
+		if r.Private != nil && *r.Private {
+			i = 0
+		} else if r.Private != nil {
+			i = 1
+		}
+		groups[i].names = append(groups[i].names, r.Name)
+		found = found || r.Name == selected
+	}
+	if !found {
+		groups[2].names = append(groups[2].names, selected)
+	}
+	return slices.DeleteFunc(groups, func(g repoGroup) bool { return len(g.names) == 0 })
 }
 
 templ themeToggle() {

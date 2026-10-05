@@ -236,6 +236,23 @@ func TestOverviewDatastarRequestPatchesPage(t *testing.T) {
 	}
 }
 
+func TestRepositoryFilterGroupsByVisibility(t *testing.T) {
+	st := storetest.Open(t, 90*24*time.Hour)
+	fx := storetest.Seed(t, st)
+	h := dashboard(st, fx.Now)
+
+	page := get(t, h, "/stats/?repo=gone%2Frepo").Body.String()
+	sel := regexp.MustCompile(`(?s)<select class="input" name="repo".*?</select>`).FindString(page)
+	var got []string
+	for _, m := range regexp.MustCompile(`<optgroup label="([^"]+)">|<option value="([^"]+)"`).FindAllStringSubmatch(sel, -1) {
+		got = append(got, m[1]+m[2])
+	}
+	want := []string{"Private", "acme/api", "acme/web", "Public", "oss/docs", "oss/gauger", "Unknown visibility", "acme/capacity", "gone/repo"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("repository options = %v, want %v", got, want)
+	}
+}
+
 func TestDatastarScriptIsTheVendoredFile(t *testing.T) {
 	st := storetest.Open(t, 90*24*time.Hour)
 	h := dashboard(st, time.Now())
